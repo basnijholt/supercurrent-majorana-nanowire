@@ -242,6 +242,7 @@ def current_at_phase(syst, hopping, p, T, H_0_cache, phase, tol=1e-2, max_freque
     # Did not converge within tol using max_frequencies Matsubara frequencies.
     if tol is not None:
         return np.nan
+    # if tol is None, return the value after max_frequencies is reached.
     else:
         return I
 

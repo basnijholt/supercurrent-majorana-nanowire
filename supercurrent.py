@@ -149,6 +149,9 @@ def peierls(func, ind, a, z_interface, c=constants):
         Index of xyz direction, corresponding to 0, 1, 2.
     a : int
         Lattice constant in nm.
+    z_interface : dict
+        A dictionary containing the the z-postion of the boundary
+        as function of y.
     c : SimpleNamespace object
         Namespace object that contains fundamental constants.
 
@@ -162,7 +165,7 @@ def peierls(func, ind, a, z_interface, c=constants):
         hop = func(s1, s2, p).astype('complex128')
         y1, y2, z1 = s1.tag[1], s2.tag[1], s1.tag[2]
         z0 = (z_interface[y1] + z_interface[y2]) / 2 - z1
-        
+
         if p.orbital:
             phase = [0, z0 * p.B_x * a**2, 0][ind]
             phi = np.exp(-1j * 1e-18 * c.eV / c.hbar * phase)

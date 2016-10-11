@@ -140,10 +140,9 @@ def hoppingkind_at_interface(hop, shape1, shape2, syst):
     return ((i, j) for (i, j) in hoppingkind if at_interface(i, j, shape1, shape2))
 
 
-def peierls(func, ind, a, z_interface, c=constants):
+def peierls(func, ind, a, c=constants):
     """Applies Peierls phase to the hoppings functions.
     Note that this function only works if spin is present.
-
     Parameters:
     -----------
     func : function
@@ -152,31 +151,28 @@ def peierls(func, ind, a, z_interface, c=constants):
         Index of xyz direction, corresponding to 0, 1, 2.
     a : int
         Lattice constant in nm.
-    z_interface : dict
-        A dictionary containing the the z-postion of the boundary
-        as function of y.
     c : SimpleNamespace object
         Namespace object that contains fundamental constants.
-
     Returns:
     --------
     with_phase : function
         Hopping function that contains the Peierls phase if p.orbital
         is True.
     """
+    def phase(s1, s2, p):
+        x, y, z = s1.pos
+        A_site = [p.B_y * z - p.B_z * y, 0, p.B_x * y][ind]
+        A_site *= a * 1e-18 * c.eV / c.hbar
+        return np.exp(-1j * A_site)
     def with_phase(s1, s2, p):
         hop = func(s1, s2, p).astype('complex128')
-        y1, y2, z1 = s1.tag[1], s2.tag[1], s1.tag[2]
-        z0 = (z_interface[y1] + z_interface[y2]) / 2 - z1
-
+        phi = phase(s1, s2, p)
         if p.orbital:
-            phase = [0, z0 * p.B_x * a**2, 0][ind]
-            phi = np.exp(-1j * 1e-18 * c.eV / c.hbar * phase)
             if hop.shape[0] == 2:
                 hop *= phi
             elif hop.shape[0] == 4:
-                hop *= np.array([phi, phi.conj(), phi, phi.conj()],
-                                dtype='complex128')
+                hop *= np.array([phi, phi.conj(), phi,
+                                 phi.conj()], dtype='complex128')
         return hop
     return with_phase
 

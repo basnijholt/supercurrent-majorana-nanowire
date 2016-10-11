@@ -8,6 +8,9 @@ from scipy.constants import hbar, m_e, eV, physical_constants
 import sympy
 import sympy.physics
 from sympy.physics.quantum import TensorProduct as kr
+import pandas as pd
+import deepdish as dd
+import os
 
 k_B = physical_constants['Boltzmann constant in eV/K'][0] * 1000
 sx, sy, sz = [sympy.physics.matrices.msigma(i) for i in range(1, 4)]
@@ -255,3 +258,31 @@ def I_c(syst, hopping, p, T, tol=1e-2, max_frequencies=200):
         fun, ranges=((-np.pi, np.pi),), Ns=30, full_output=True)
     x0, fval, grid, Jout = opt
     return dict(phase_c=x0[0], current_c=-fval, phases=grid, currents=-Jout)
+
+
+def to_df(fname_start, vals_columns, remove_keys, save, fname):
+    # Load all data from deepdish and convert it to pd.DataFrame
+    files = [f for f in os.listdir('./') if f.startswith(fname_start) and f.endswith('.h5')]
+    print(files)
+    df = pd.DataFrame()
+    for f in files:
+        x = dd.io.load(f)
+        df1 = pd.DataFrame(x.pop('vals'), columns=vals_columns)
+        df2 = pd.DataFrame(x.pop('current_phase'))
+        df_new = pd.concat([df1, df2], axis=1)
+
+        for key in remove_keys:
+            x.pop(key)
+
+        for dim in x.keys():
+            if isinstance(x[dim], dict):
+                dic = {key: val for key, val in x[dim].items() if val is not None}
+                df_new = df_new.assign(**dic)
+            else:
+                df_new[dim] = x[dim]
+
+        df = df.append(df_new, ignore_index=True)
+
+    if save:
+        df.reindex().to_hdf(fname, 'all_data', mode='w')
+    return df

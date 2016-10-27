@@ -6,3 +6,4 @@ __pycache__/*
 *.hdf
 pdfs/
 *.pdf
+figures/

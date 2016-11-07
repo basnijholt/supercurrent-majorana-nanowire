@@ -1,6 +1,7 @@
 from collections import namedtuple
 import deepdish
 import discretizer
+from functools import lru_cache
 from itertools import product, starmap
 import kwant
 from kwant.digest import uniform
@@ -371,6 +372,7 @@ def square_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
         return sector, (L - a, 0, 0)
 
 
+@lru_cache()
 def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, disorder,
                  with_vlead, with_leads, with_shell, spin, holes, shape):
     """Creates a cylindrical 3D wire partially covered with a superconducting (SC) shell, 
@@ -378,7 +380,7 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, disorder,
 
     Default arguments:
     ------------------
-    (a=10, L=50, r1=50, r2=70, phi=135, angle=0, disorder=False, 
+    (a=10, L=50, r1=50, r2=70, phi=135, angle=0, disorder=False,
      with_vlead=True, with_leads=True, L_sc=10, with_shell=True,
      spin=True, holes=True)
     Note: we are not using default parameter because I save them in a dictionary, to
@@ -399,7 +401,7 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, disorder,
         Coverage angle of superconductor in degrees, if bigger than 180 degrees,
         the Peierls substitution fails.
     angle : int
-        Angle of tilting of superconductor from top in degrees.    
+        Angle of tilting of superconductor from top in degrees.
     disorder : bool
         When True, syst requires 'disorder' and 'salt' aguments.
     with_vlead : bool

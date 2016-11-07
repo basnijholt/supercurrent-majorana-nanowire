@@ -1,16 +1,31 @@
-from types import SimpleNamespace
-
+from collections import namedtuple
+import deepdish
 import discretizer
+from itertools import product, starmap
 import kwant
+from kwant.digest import uniform
 import numpy as np
-import scipy.optimize
+import os
+import pandas as pd
+import subprocess
 from scipy.constants import hbar, m_e, eV, physical_constants
+import scipy.optimize
 import sympy
 import sympy.physics
 from sympy.physics.quantum import TensorProduct as kr
-import pandas as pd
-import deepdish as dd
-import os
+import types
+
+
+class SimpleNamespace(types.SimpleNamespace):
+
+    def update(self, **kwargs):
+        self.__dict__.update(kwargs)
+        return self
+
+
+def named_product(**items):
+    Product = namedtuple('Product', items.keys())
+    return starmap(Product, product(*items.values()))
 
 k_B = physical_constants['Boltzmann constant in eV/K'][0] * 1000
 sx, sy, sz = [sympy.physics.matrices.msigma(i) for i in range(1, 4)]
@@ -28,16 +43,9 @@ constants = SimpleNamespace(
     eV=eV,
     meV=eV * 1e-3)
 
-constants.t = (constants.hbar ** 2 / (2 * constants.m)) * \
+constants.t = (constants.hbar**2 / (2 * constants.m)) * \
     (1e18 / constants.meV)  # meV * nm^2
 constants.mu_B = physical_constants['Bohr magneton'][0] / constants.meV
-
-
-class SimpleNamespace(SimpleNamespace):
-
-    def update(self, **kwargs):
-        self.__dict__.update(kwargs)
-        return self
 
 
 def make_params(alpha=20,
@@ -72,7 +80,8 @@ def make_params(alpha=20,
         Lande g factor.
     mu_B : float
         Bohr magneton in meV/K.
-
+    V : function
+        Potential as function of x.
     Returns:
     --------
     p : SimpleNamespace object
@@ -236,7 +245,7 @@ def current_at_phase(syst, hopping, p, T, H_0_cache, phase, tol=1e-2, max_freque
             H_0_cache.append(null_H(syst, p, T, n))
         I_contrib = current_contrib_from_H_0(T, H_0_cache[n], H12, phase)
         I += I_contrib
-        if tol is not None and abs(I_contrib / I) < tol:
+        if I_contrib == 0 or tol is not None and abs(I_contrib / I) < tol:
             return I
     # Did not converge within tol using max_frequencies Matsubara frequencies.
     if tol is not None:
@@ -262,7 +271,7 @@ def to_df(fname_start, vals_columns, remove_keys, save, fname):
     print(files)
     df = pd.DataFrame()
     for f in files:
-        x = dd.io.load(f)
+        x = deepdish.io.load(f)
         df1 = pd.DataFrame(x.pop('vals'), columns=vals_columns)
         df2 = pd.DataFrame(x.pop('current_phase'))
         df_new = pd.concat([df1, df2], axis=1)
@@ -282,3 +291,271 @@ def to_df(fname_start, vals_columns, remove_keys, save, fname):
     if save:
         df.reindex().to_hdf(fname, 'all_data', mode='w')
     return df
+
+
+def cylinder_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
+    """Returns the shape function and start coords.
+
+    Parameters:
+    -----------
+    r_out : int
+        Outer radius in nm.
+    r_in : int
+        Inner radius in nm.
+    L : int
+        Length of wire from L0 in nm, -1 if infinite in x-direction.
+    L0 : int
+        Start position in x.
+    phi : int
+        Coverage angle in degrees.
+    angle : int
+        Angle of tilting from top in degrees.
+    a : int
+        Discretization constant in nm.
+
+    Returns:
+    --------
+    (shape_func, *(start_coords))
+    """
+    phi *= np.pi / 360
+    angle *= np.pi / 180
+    r1sq, r2sq = r_out**2, r_in**2
+
+    def sector(pos):
+        x, y, z = pos
+        n = (y + 1j * z) * np.exp(1j * angle)
+        y, z = n.real, n.imag
+        rsq = y**2 + z**2
+
+        shape_yz = r2sq <= rsq < r1sq and z >= np.cos(phi) * np.sqrt(rsq)
+        return (shape_yz and L0 <= x < L) if L > 0 else shape_yz
+    r_mid = (r_out + r_in) / 2
+    return sector, (L - a, r_mid * np.sin(angle), r_mid * np.cos(angle))
+
+
+def square_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
+    """Returns the shape function and start coords.
+
+    Parameters:
+    -----------
+    r_out : int
+        Outer radius in nm.
+    r_in : int
+        Inner radius in nm.
+    L : int
+        Length of wire from L0 in nm, -1 if infinite in x-direction.
+    L0 : int
+        Start position in x.
+    phi : int
+        Coverage angle in degrees.
+    angle : int
+        Angle of tilting from top in degrees.
+    a : int
+        Discretization constant in nm.
+
+    Returns:
+    --------
+    (shape_func, *(start_coords))
+    """
+    if r_in > 0:
+        def sector(pos):
+            x, y, z = pos
+            shape_yz = -r_in <= y < r_in and r_in <= z < r_out
+            return (shape_yz and L0 <= x < L) if L > 0 else shape_yz
+        return sector, (L - a, 0, r_in + a)
+    else:
+        def sector(pos):
+            x, y, z = pos
+            shape_yz = -r_out <= y < r_out and -r_out <= z < r_out
+            return (shape_yz and L0 <= x < L) if L > 0 else shape_yz
+        return sector, (L - a, 0, 0)
+
+
+def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, disorder,
+                 with_vlead, with_leads, with_shell, spin, holes, shape):
+    """Creates a cylindrical 3D wire partially covered with a superconducting (SC) shell, 
+    but without superconductor in the scattering region of length L.
+
+    Default arguments:
+    ------------------
+    (a=10, L=50, r1=50, r2=70, phi=135, angle=0, disorder=False, 
+     with_vlead=True, with_leads=True, L_sc=10, with_shell=True,
+     spin=True, holes=True)
+    Note: we are not using default parameter because I save them in a dictionary, to
+    save to file.
+
+    Parameters:
+    -----------
+    a : int
+        Discretization constant in nm.
+    L : int
+        Length of wire (the scattering part without SC shell.) Should be bigger
+        than 4 unit cells (4*a) to have the vleads in a region without a SC shell.
+    r1 : int
+        Radius of normal part of wire in nm.
+    r2 : int
+        Radius of superconductor in nm.
+    phi : int
+        Coverage angle of superconductor in degrees, if bigger than 180 degrees,
+        the Peierls substitution fails.
+    angle : int
+        Angle of tilting of superconductor from top in degrees.    
+    disorder : bool
+        When True, syst requires 'disorder' and 'salt' aguments.
+    with_vlead : bool
+        If True a SelfEnergyLead with zero energy is added to a slice of the system.
+    with_leads : bool
+        If True it appends infinite leads with superconducting shell.
+    L_sc : int
+        Number of unit cells that has a superconducting shell. If the system has
+        infinite leads, set L_sc=a.
+    with_shell : bool
+        Adds shell the the correct areas. If False no SC shell is added and only
+        a cylindrical wire will be created.
+    shape : str
+        Either `circle` or `square` shaped cross-section.
+
+    Returns:
+    --------
+    syst : kwant.builder.FiniteSystem
+        The finilized system.
+    hopping : function
+        Function that returns the hopping matrix between the two cross sections
+        of where the SelfEnergyLead is attached.
+    """
+    assert L_sc % a == 0
+    assert L % a == 0
+
+    tb_normal, tb_sc, tb_interface = discretized_hamiltonian(a, spin, holes)
+    lat = tb_normal.lattice
+    syst = kwant.Builder()
+    lead = kwant.Builder(kwant.TranslationalSymmetry((-a, 0, 0)))
+
+    # The parts with a SC shell are not counted in the length L, so it's
+    # modified as:
+    L += 2*L_sc
+
+    if shape == 'square':
+        shape_function = square_sector
+    elif shape == 'circle':
+        shape_function = cylinder_sector
+    else:
+        raise(NotImplementedError('Only square or circle wire cross-section allowed'))
+
+    # Wire scattering region shapes
+    shape_normal = shape_function(r_out=r1, angle=angle, L=L, a=a)
+    # Superconductor slice in the beginning of the scattering region of L_sc
+    # unit cells
+    shape_sc_start = shape_function(
+        r_out=r2, r_in=r1, phi=phi, angle=angle, L=L_sc, a=a)
+    # Superconductor slice in the end of the scattering region of L_sc unit
+    # cells
+    shape_sc_end = shape_function(
+        r_out=r2, r_in=r1, phi=phi, angle=angle, L0=L-L_sc, L=L, a=a)
+
+    # Lead shapes
+    shape_sc_lead = shape_function(
+        r_out=r2, r_in=r1, phi=phi, angle=angle, L=-1, a=a)
+    shape_normal_lead = shape_function(r_out=r1, angle=angle, L=-1, a=a)
+
+    def onsite_dis(site, p):
+        identity = np.eye(4) if spin and holes else np.eye(2)
+        return p.disorder * (uniform(repr(site), repr(p.salt)) - 0.5) * identity
+
+    # Add onsite terms in the scattering region
+    syst[lat.shape(*shape_normal)] = lambda s, p: tb_normal.onsite(s, p) + (onsite_dis(s, p) if disorder else 0)
+
+    if with_shell:
+        syst[lat.shape(*shape_sc_start)] = tb_sc.onsite
+        syst[lat.shape(*shape_sc_end)] = tb_sc.onsite
+
+    # Add onsite terms in the infinite lead
+    lead[lat.shape(*shape_normal_lead)] = tb_normal.onsite
+    if with_shell:
+        lead[lat.shape(*shape_sc_lead)] = tb_sc.onsite
+
+    for hop, func in tb_normal.hoppings.items():
+        # Add hoppings in normal parts of wire and lead with Peierls
+        # substitution
+        ind = np.argmax(hop.delta)  # Index of direction of hopping
+        syst[hoppingkind_in_shape(hop, shape_normal, syst)] = peierls(func, ind, a)
+        lead[hoppingkind_in_shape(hop, shape_normal_lead, lead)] = peierls(func, ind, a)
+
+    if with_shell:
+        for hop, func in tb_sc.hoppings.items():
+            ind = np.argmax(hop.delta)  # Index of direction of hopping
+            # Add hoppings in superconducting parts of wire and lead
+            syst[hoppingkind_in_shape(hop, shape_sc_start, syst)] = peierls(func, ind, a)
+            syst[hoppingkind_in_shape(hop, shape_sc_end, syst)] = peierls(func, ind, a)
+            lead[hoppingkind_in_shape(hop, shape_sc_lead, lead)] = peierls(func, ind, a)
+
+        for hop, func in tb_interface.hoppings.items():
+            # Add hoppings at the interface of superconducting parts and normal
+            # parts of wire and lead
+            ind = np.argmax(hop.delta)  # Index of direction of hopping
+            syst[hoppingkind_at_interface(
+                hop, shape_sc_start, shape_normal, syst)] = peierls(func, ind, a)
+            syst[hoppingkind_at_interface(
+                hop, shape_sc_end, shape_normal, syst)] = peierls(func, ind, a)
+            lead[hoppingkind_at_interface(
+                hop, shape_sc_lead, shape_normal_lead, lead)] = peierls(func, ind, a)
+
+    def cut(x_cut):
+        """Return the sites at a cross section at x_cut."""
+        sites = [lat(x, y, z)
+                 for x, y, z in (i.tag for i in syst.sites()) if x == x_cut]
+        return sorted(sites, key=lambda s: s.pos[2] * 10000 + s.pos[1])
+
+    # Define left and right cut in wire in the middle of the wire, a region
+    # without superconducting shell.
+    l_cut = cut(L // (2*a) - 1)
+    r_cut = cut(L // (2*a))
+    num_orbs = 4
+    dim = num_orbs * (len(l_cut) + len(r_cut))
+    vlead = kwant.builder.SelfEnergyLead(
+        lambda energy, args: np.zeros((dim, dim)), r_cut + l_cut)
+
+    if with_vlead:
+        syst.leads.append(vlead)
+    if with_leads:
+        syst.attach_lead(lead)
+        syst.attach_lead(lead.reversed())
+
+    syst = syst.finalized()
+
+    r_cut_sites = [syst.sites.index(site) for site in r_cut]
+    l_cut_sites = [syst.sites.index(site) for site in l_cut]
+
+    def hopping(syst, args=()):
+        """Function that returns the hopping matrix of the electrons
+        between the two cross sections."""
+        return syst.hamiltonian_submatrix(args=args,
+                                          to_sites=l_cut_sites,
+                                          from_sites=r_cut_sites)[::2, ::2]
+    return syst, hopping
+
+
+def save_data(fname, p, constants, Bs, tol, syst_params, T, current_phase, **kwargs):
+    if os.path.exists(fname):
+        return "File already existed"
+
+    def SimpleNamespace_save(p):
+        """Removes functions from SimpleNamespace."""
+        p_new = {key: val for key, val in p.__dict__.items()
+                 if not isinstance(val, types.FunctionType)}
+        return p_new
+
+    data = {'p': SimpleNamespace_save(p),
+            'constants': SimpleNamespace_save(constants),
+            'B_x': Bs,
+            'tol': tol,
+            'syst_params': syst_params,
+            'T': T,
+            'current_phase': current_phase,
+            'git_hash': get_git_revision_hash(), **kwargs}
+
+    deepdish.io.save(fname, data, compression='blosc')
+
+
+def get_git_revision_hash():
+        return subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode("utf-8").replace('\n', '')

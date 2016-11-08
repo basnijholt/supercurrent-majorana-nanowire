@@ -1,31 +1,27 @@
+# Standard library imports
 from collections import namedtuple
-import deepdish
-import discretizer
 from functools import lru_cache
 from itertools import product, starmap
+import os
+import subprocess
+import types
+import warnings
+
+# Custom module imports
+import discretizer
 import kwant
 from kwant.digest import uniform
 import numpy as np
-import os
 import pandas as pd
-import subprocess
 from scipy.constants import hbar, m_e, eV, physical_constants
 import scipy.optimize
 import sympy
 import sympy.physics
 from sympy.physics.quantum import TensorProduct as kr
-import types
-import warnings
-
-
-class SimpleNamespace(types.SimpleNamespace):
-
-    def update(self, **kwargs):
-        self.__dict__.update(kwargs)
-        return self
 
 
 def named_product(**items):
+    """Named `itertools.product` with `collections.namedtuple`s."""
     Product = namedtuple('Product', items.keys())
     return starmap(Product, product(*items.values()))
 
@@ -37,10 +33,13 @@ def chunks(l, n):
 
 
 def get_git_revision_hash():
-    return subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode("utf-8").replace('\n', '')
+    """Get the git hash to save with data to ensure reproducibility."""
+    git_output = subprocess.check_output(['git', 'rev-parse', 'HEAD'])
+    return git_output.decode("utf-8").replace('\n', '')
 
 
 def find_nearest(array, value):
+    """Find the nearest value in an array to a specified `value`."""
     idx = np.abs(np.array(array) - value).argmin()
     return array[idx]
 
@@ -60,17 +59,17 @@ s0sz = np.kron(s0, sz)
 s0s0 = np.kron(s0, s0)
 
 # Parameters taken from arXiv:1204.2792
-# All constant parameters, mostly fundamental constants, in a SimpleNamespace.
-constants = SimpleNamespace(
+# All constant parameters, mostly fundamental
+# constants, in a types.SimpleNamespace.
+constants = types.SimpleNamespace(
     m=0.015 * m_e,  # effective mass in kg
     hbar=hbar,
     m_e=m_e,
-    e=eV,
     eV=eV,
     meV=eV * 1e-3)
 
-constants.t = (constants.hbar**2 / (2 * constants.m)) * \
-    (1e18 / constants.meV)  # meV * nm^2
+constants.t = ((constants.hbar**2 / (2 * constants.m)) * 
+                (1e18 / constants.meV)) # meV * nm^2
 constants.mu_B = physical_constants['Bohr magneton'][0] / constants.meV
 
 
@@ -88,8 +87,8 @@ def make_params(alpha=20,
                 **kwargs):
     """Function that creates a namespace with parameters.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     alpha : float
         Spin-orbit coupling strength in units of meV*nm.
     B_x, B_y, B_z : float
@@ -108,12 +107,13 @@ def make_params(alpha=20,
         Bohr magneton in meV/K.
     V : function
         Potential as function of x.
-    Returns:
-    --------
-    p : SimpleNamespace object
+
+    Returns
+    -------
+    p : types.SimpleNamespace object
         A simple container that is used to store Hamiltonian parameters.
     """
-    p = SimpleNamespace(alpha=alpha,
+    p = types.SimpleNamespace(alpha=alpha,
                         B_x=B_x,
                         B_y=B_y,
                         B_z=B_z,
@@ -129,12 +129,31 @@ def make_params(alpha=20,
 
 
 def discretized_hamiltonian(a=10, spin=True, holes=True):
+    """Discretize the the BdG Hamiltonian and returns
+    functions used to construct a kwant system.
+
+    Parameters
+    ----------
+    a : int
+        Lattice constant in nm.
+    spin : bool
+        Add spin-space operators in the Hamiltonian.
+    holes : bool
+        Add particle-hole operators in the Hamiltonian.
+    
+    Returns
+    -------
+    tb_normal, tb_sc, tb_interface : discretizer.Discretizer ojects
+        Discretized Hamilonian functions of the semiconducting part,
+        superconducting part, and for the interface, respectively.
+    """
     k_x, k_y, k_z = discretizer.momentum_operators
     x, y, z = discretizer.coordinates
     t, B_x, B_y, B_z, mu_B, Delta, mu, alpha, g, V = sympy.symbols(
         't B_x B_y B_z mu_B Delta mu alpha g V', real=True)
     t_interface = sympy.symbols('t_interface', real=True)
-    k = sympy.sqrt(k_x**2+k_y**2+k_z**2)
+    k = sympy.sqrt(k_x**2 + k_y**2 + k_z**2)
+
     if spin and holes:
         ham = ((t * k**2 - mu + V(x)) * kr(s0, sz) +
                alpha * (k_y * kr(sx, sz) - k_x * kr(sy, sz)) +
@@ -175,51 +194,45 @@ def hoppingkind_at_interface(hop, shape1, shape2, syst):
     return ((i, j) for (i, j) in hoppingkind if at_interface(i, j, shape1, shape2))
 
 
-def peierls(func, ind, a, c=constants):
-    """Applies Peierls phase to the hoppings functions.
-    Note that this function only works if spin is present.
-    Parameters:
-    -----------
-    func : function
-        Hopping function in certain direction.
-    ind : int
-        Index of xyz direction, corresponding to 0, 1, 2.
-    a : int
-        Lattice constant in nm.
-    c : SimpleNamespace object
-        Namespace object that contains fundamental constants.
-    Returns:
-    --------
-    with_phase : function
-        Hopping function that contains the Peierls phase if p.orbital
-        is True.
-    """
-    def phase(s1, s2, p):
-        x, y, z = s1.pos
-        A_site = [p.B_y * z - p.B_z * y, 0, p.B_x * y][ind]
-        A_site *= a * 1e-18 * c.eV / c.hbar
-        return np.exp(-1j * A_site)
-    def with_phase(s1, s2, p):
-        hop = func(s1, s2, p).astype('complex128')
-        phi = phase(s1, s2, p)
-        if p.orbital:
-            if hop.shape[0] == 2:
-                hop *= phi
-            elif hop.shape[0] == 4:
-                hop *= np.array([phi, phi.conj(), phi,
-                                 phi.conj()], dtype='complex128')
-        return hop
-    return with_phase
-
-
 def matsubara_frequency(T, n):
+    """n-th fermionic Matsubara frequency at temperature T.
+
+    Parameters
+    ----------
+    T : float
+        Temperature in units of Kelvin.
+    n : int
+        n-th Matsubara frequency
+
+    Returns
+    -------
+    float
+        Imaginary energy.
+    """
     return (2*n + 1) * np.pi * k_B * T * 1j
 
 
 def null_H(syst, p, T, n):
+    """Return the Hamiltonian (inverse of the Green's function) of
+    the electron part at zero phase.
+
+    Parameters
+    ----------
+    syst : kwant.builder.FiniteSystem
+        The finilized kwant system.
+    p : types.SimpleNamespace object
+        A container that is used to store Hamiltonian parameters.
+    T : float
+        Temperature in units of Kelvin.
+    n : int
+        n-th Matsubara frequency
+
+    Returns
+    -------
+    numpy.array
+        The Hamiltonian at zero energy and zero phase."""
     en = matsubara_frequency(T, n)
-    gf = kwant.greens_function(
-        syst, en, [p], [0], [0], check_hermiticity=False)
+    gf = kwant.greens_function(syst, en, [p], [0], [0], check_hermiticity=False)
     return np.linalg.inv(gf.data[::2, ::2])
 
 
@@ -254,7 +267,6 @@ def I_c_fixed_n(syst, hopping, p, T, matsfreqs=5):
 
 
 def current_contrib_from_H_0(T, H_0, H12, phase):
-    # Maybe take this line outside of the function?
     t = H12 * np.exp(1j * phase)
     gf = gf_from_H_0(H_0, t - H12)
     dim = t.shape[0]
@@ -264,6 +276,38 @@ def current_contrib_from_H_0(T, H_0, H12, phase):
 
 
 def current_at_phase(syst, hopping, p, T, H_0_cache, phase, tol=1e-2, max_frequencies=200):
+    """Find the supercurrent at a phase using a list of Hamiltonians at
+    different imaginary energies (Matsubara frequencies). If this list
+    does not contain enough Hamiltonians to converge, it automatically
+    appends them at higher Matsubara frequencies untill the contribution
+    is lower than `tol`, however, it cannot exceed `max_frequencies`.
+
+    Parameters
+    ----------
+    syst : kwant.builder.FiniteSystem
+        The finilized kwant system.
+    hopping : function
+        Function that returns the hopping matrix between the two cross sections
+        of where the SelfEnergyLead is attached.
+    p : types.SimpleNamespace object
+        A container that is used to store Hamiltonian parameters.
+    T : float
+        Temperature in units of Kelvin.
+    H_0_cache : list
+        Hamiltonians at different imaginary energies.
+    phase : float
+        Phase at which the supercurrent is calculated.
+    tol : float
+        Tolerance of the `current_at_phase` function.
+    max_frequencies : int
+        Maximum number of Matsubara frequencies.
+
+    Returns
+    -------
+    dict
+        Dictionary with the critical phase, critical current, and `currents`
+        evaluated at `phases`."""
+
     H12 = hopping(syst, [p])
     I = 0
     for n in range(max_frequencies):
@@ -282,6 +326,30 @@ def current_at_phase(syst, hopping, p, T, H_0_cache, phase, tol=1e-2, max_freque
 
 
 def I_c(syst, hopping, p, T, tol=1e-2, max_frequencies=200):
+    """Find the critical current by optimizing the current-phase
+    relation.
+
+    Parameters
+    ----------
+    syst : kwant.builder.FiniteSystem
+        The finilized kwant system.
+    hopping : function
+        Function that returns the hopping matrix between the two cross
+        sections of where the SelfEnergyLead is attached.
+    p : types.SimpleNamespace object
+        A container that is used to store Hamiltonian parameters.
+    T : float
+        Temperature in units of Kelvin.
+    tol : float
+        Tolerance of the `current_at_phase` function.
+    max_frequencies : int
+        Maximum number of Matsubara frequencies.
+
+    Returns
+    -------
+    dict
+        Dictionary with the critical phase, critical current, and `currents`
+        evaluated at `phases`."""
     H_0_cache = []
     fun = lambda phase: -current_at_phase(syst, hopping, p, T, H_0_cache,
                                           phase, tol, max_frequencies)
@@ -291,56 +359,68 @@ def I_c(syst, hopping, p, T, tol=1e-2, max_frequencies=200):
     return dict(phase_c=x0[0], current_c=-fval, phases=grid, currents=-Jout)
 
 
-def to_df(fname_start, vals_columns, remove_keys, save, fname):
-    # Load all data from deepdish and convert it to pd.DataFrame
-    files = [f for f in os.listdir('./') if f.startswith(fname_start) and f.endswith('.h5')]
-    print(files)
-    df = pd.DataFrame()
-    for f in files:
-        x = deepdish.io.load(f)
-        df1 = pd.DataFrame(x.pop('vals'), columns=vals_columns)
-        df2 = pd.DataFrame(x.pop('current_phase'))
-        df_new = pd.concat([df1, df2], axis=1)
+def peierls(func, ind, a, c=constants):
+    """Applies Peierls phase to the hoppings functions. This function only
+    works if spin is present.
 
-        for key in remove_keys:
-            x.pop(key)
+    Parameters
+    ----------
+    func : function
+        Hopping function in certain direction.
+    ind : int
+        Index of xyz direction, corresponding to 0, 1, 2.
+    a : int
+        Lattice constant in nm.
+    c : types.SimpleNamespace object, optional
+        Namespace object that contains fundamental constants.
 
-        for dim in x.keys():
-            if isinstance(x[dim], dict):
-                dic = {key: val for key, val in x[dim].items() if val is not None}
-                df_new = df_new.assign(**dic)
-            else:
-                df_new[dim] = x[dim]
-
-        df = df.append(df_new, ignore_index=True)
-
-    if save:
-        df.reindex().to_hdf(fname, 'all_data', mode='w')
-    return df
+    Returns
+    -------
+    with_phase : function
+        Hopping function that contains the Peierls phase if p.orbital
+        is True.
+    """
+    def phase(s1, s2, p):
+        x, y, z = s1.pos
+        A_site = [p.B_y * z - p.B_z * y, 0, p.B_x * y][ind]
+        A_site *= a * 1e-18 * c.eV / c.hbar
+        return np.exp(-1j * A_site)
+    def with_phase(s1, s2, p):
+        hop = func(s1, s2, p).astype('complex128')
+        phi = phase(s1, s2, p)
+        if p.orbital:
+            if hop.shape[0] == 2:
+                hop *= phi
+            elif hop.shape[0] == 4:
+                hop *= np.array([phi, phi.conj(), phi,
+                                 phi.conj()], dtype='complex128')
+        return hop
+    return with_phase
 
 
 def cylinder_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
-    """Returns the shape function and start coords.
+    """Returns the shape function and start coords for a wire with
+    as cylindrical cross section.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     r_out : int
         Outer radius in nm.
-    r_in : int
+    r_in : int, optional
         Inner radius in nm.
-    L : int
+    L : int, optional
         Length of wire from L0 in nm, -1 if infinite in x-direction.
-    L0 : int
+    L0 : int, optional
         Start position in x.
-    phi : int
+    phi : int, optional
         Coverage angle in degrees.
-    angle : int
+    angle : int, optional
         Angle of tilting from top in degrees.
-    a : int
+    a : int, optional
         Discretization constant in nm.
 
-    Returns:
-    --------
+    Returns
+    -------
     (shape_func, *(start_coords))
     """
     phi *= np.pi / 360
@@ -360,10 +440,11 @@ def cylinder_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
 
 
 def square_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
-    """Returns the shape function and start coords.
+    """Returns the shape function and start coords of a wire
+    with a square cross section.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     r_out : int
         Outer radius in nm.
     r_in : int
@@ -372,15 +453,15 @@ def square_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
         Length of wire from L0 in nm, -1 if infinite in x-direction.
     L0 : int
         Start position in x.
-    phi : int
-        Coverage angle in degrees.
-    angle : int
-        Angle of tilting from top in degrees.
+    phi : ignored
+        Ignored variable, to have same arguments as cylinder_sector.
+    angle : ignored
+        Ignored variable, to have same arguments as cylinder_sector.
     a : int
         Discretization constant in nm.
 
-    Returns:
-    --------
+    Returns
+    -------
     (shape_func, *(start_coords))
     """
     if r_in > 0:
@@ -400,21 +481,12 @@ def square_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
 @lru_cache()
 def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, disorder, with_vlead,
                  with_leads, with_shell, spin, holes, shape, A_in_SC):
-    """Creates a cylindrical 3D wire partially covered with a superconducting (SC) shell, 
-    but without superconductor in the scattering region of length L.
+    """Create a cylindrical 3D wire partially covered with a
+    superconducting (SC) shell, but without superconductor in the 
+    scattering region of length L.
 
-    Example arguments:
-    ------------------
-    (A_in_SC=True, a=10, angle=0, disorder=False, holes=True, L=30, L_sc=10,
-     phi=185, r1=50, r2=70, shape='square', spin=True, with_leads=True,
-     with_shell=True, with_vlead=True)    
-
-    Note: we are not using default parameters because I want to save them to file,
-    so I create a dictionary that is passed to the function.
-    save to file.
-
-    Parameters:
-    -----------
+    Parameters
+    ----------
     a : int
         Discretization constant in nm.
     L : int
@@ -430,7 +502,7 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, disorder, with_vlead,
     angle : int
         Angle of tilting of superconductor from top in degrees.
     disorder : bool
-        When True, syst requires 'disorder' and 'salt' aguments.
+        When True, syst requires `disorder` and `salt` aguments.
     with_vlead : bool
         If True a SelfEnergyLead with zero energy is added to a slice of the system.
     with_leads : bool
@@ -442,18 +514,31 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, disorder, with_vlead,
         Adds shell the the correct areas. If False no SC shell is added and only
         a cylindrical wire will be created.
     shape : str
-        Either `circle` or `square` shaped cross-section.
+        Either `circle` or `square` shaped cross section.
     A_in_SC : bool
         Performs the Peierls substitution in the superconductor. Can be True and False
         only when shape='square', and only True when shape='circle'.
 
-    Returns:
-    --------
+    Returns
+    -------
     syst : kwant.builder.FiniteSystem
-        The finilized system.
+        The finilized kwant system.
     hopping : function
         Function that returns the hopping matrix between the two cross sections
         of where the SelfEnergyLead is attached.
+
+    Examples
+    --------
+    This doesn't use default parameters because the variables need to be saved,
+    to a file. So I create a dictionary that is passed to the function.
+
+    
+    >>> syst_params = dict(A_in_SC=True, a=10, angle=0, disorder=False,
+    ...                    holes=True, L=30, L_sc=10, phi=185, r1=50, r2=70,
+    ...                    shape='square', spin=True, with_leads=True,
+    ...                    with_shell=True, with_vlead=True)    
+    >>> syst, hopping = make_3d_wire(**syst_params)
+    
     """
     assert L_sc % a == 0
     assert L % a == 0
@@ -476,7 +561,7 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, disorder, with_vlead,
     elif shape == 'circle':
         shape_function = cylinder_sector
     else:
-        raise(NotImplementedError('Only square or circle wire cross-section allowed'))
+        raise(NotImplementedError('Only square or circle wire cross section allowed'))
 
     # Wire scattering region shapes
     shape_normal = shape_function(r_out=r1, angle=angle, L=L, a=a)
@@ -541,7 +626,7 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, disorder, with_vlead,
                 hop, shape_sc_lead, shape_normal_lead, lead)] = peierls(func, ind, a)
 
     def cut(x_cut):
-        """Return the sites at a cross section at x_cut."""
+        """Return the sites at a cross section at `x_cut`."""
         sites = [lat(x, y, z)
                  for x, y, z in (i.tag for i in syst.sites()) if x == x_cut]
         return sorted(sites, key=lambda s: s.pos[2] * 10000 + s.pos[1])

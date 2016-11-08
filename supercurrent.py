@@ -15,6 +15,7 @@ import sympy
 import sympy.physics
 from sympy.physics.quantum import TensorProduct as kr
 import types
+import warnings
 
 
 class SimpleNamespace(types.SimpleNamespace):
@@ -27,6 +28,30 @@ class SimpleNamespace(types.SimpleNamespace):
 def named_product(**items):
     Product = namedtuple('Product', items.keys())
     return starmap(Product, product(*items.values()))
+
+
+def chunks(l, n):
+    """Yield successive n-sized chunks from l."""
+    for i in range(0, len(l), n):
+        yield l[i:i + n]
+
+
+def get_git_revision_hash():
+        return subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode("utf-8").replace('\n', '')
+
+
+def find_nearest(array, value):
+    idx = np.abs(np.array(array) - value).argmin()
+    return array[idx]
+
+
+def gate(syst, V, gate_size):
+    x_positions = sorted(set(i.pos[0] for i in syst.sites))
+    x_mid = (max(x_positions) - min(x_positions)) / 2
+    x_L = find_nearest(x_positions, x_mid - gate_size / 2)
+    x_R = find_nearest(x_positions, x_mid + gate_size / 2)
+    return lambda x: V if x > x_L and x <= x_R else 0
+
 
 k_B = physical_constants['Boltzmann constant in eV/K'][0] * 1000
 sx, sy, sz = [sympy.physics.matrices.msigma(i) for i in range(1, 4)]
@@ -373,17 +398,19 @@ def square_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
 
 
 @lru_cache()
-def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, disorder,
-                 with_vlead, with_leads, with_shell, spin, holes, shape):
+def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, disorder, with_vlead,
+                 with_leads, with_shell, spin, holes, shape, A_in_SC):
     """Creates a cylindrical 3D wire partially covered with a superconducting (SC) shell, 
     but without superconductor in the scattering region of length L.
 
-    Default arguments:
+    Example arguments:
     ------------------
-    (a=10, L=50, r1=50, r2=70, phi=135, angle=0, disorder=False,
-     with_vlead=True, with_leads=True, L_sc=10, with_shell=True,
-     spin=True, holes=True)
-    Note: we are not using default parameter because I save them in a dictionary, to
+    (A_in_SC=True, a=10, angle=0, disorder=False, holes=True, L=30, L_sc=10,
+     phi=185, r1=50, r2=70, shape='square', spin=True, with_leads=True,
+     with_shell=True, with_vlead=True)    
+
+    Note: we are not using default parameters because I want to save them to file,
+    so I create a dictionary that is passed to the function.
     save to file.
 
     Parameters:
@@ -416,6 +443,9 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, disorder,
         a cylindrical wire will be created.
     shape : str
         Either `circle` or `square` shaped cross-section.
+    A_in_SC : bool
+        Performs the Peierls substitution in the superconductor. Can be True and False
+        only when shape='square', and only True when shape='circle'.
 
     Returns:
     --------
@@ -427,6 +457,10 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, disorder,
     """
     assert L_sc % a == 0
     assert L % a == 0
+    if not A_in_SC and shape == 'circle':
+        warnings.warn("Using shape='circle' and A_in_SC=False will result " + 
+            "in incorrect fluxes at the interface of the SC and SM, however " +
+            "the results will not differ qualitatively.")
 
     tb_normal, tb_sc, tb_interface = discretized_hamiltonian(a, spin, holes)
     lat = tb_normal.lattice
@@ -487,9 +521,13 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, disorder,
         for hop, func in tb_sc.hoppings.items():
             ind = np.argmax(hop.delta)  # Index of direction of hopping
             # Add hoppings in superconducting parts of wire and lead
-            syst[hoppingkind_in_shape(hop, shape_sc_start, syst)] = peierls(func, ind, a)
-            syst[hoppingkind_in_shape(hop, shape_sc_end, syst)] = peierls(func, ind, a)
-            lead[hoppingkind_in_shape(hop, shape_sc_lead, lead)] = peierls(func, ind, a)
+            if A_in_SC:
+                tmp_peierls = peierls
+            else:
+                tmp_peierls = lambda func, ind, a: func
+            syst[hoppingkind_in_shape(hop, shape_sc_start, syst)] = tmp_peierls(func, ind, a)
+            syst[hoppingkind_in_shape(hop, shape_sc_end, syst)] = tmp_peierls(func, ind, a)
+            lead[hoppingkind_in_shape(hop, shape_sc_lead, lead)] = tmp_peierls(func, ind, a)
 
         for hop, func in tb_interface.hoppings.items():
             # Add hoppings at the interface of superconducting parts and normal
@@ -535,29 +573,3 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, disorder,
                                           to_sites=l_cut_sites,
                                           from_sites=r_cut_sites)[::2, ::2]
     return syst, hopping
-
-
-def save_data(fname, p, constants, Bs, tol, syst_params, T, current_phase, **kwargs):
-    if os.path.exists(fname):
-        return "File already existed"
-
-    def SimpleNamespace_save(p):
-        """Removes functions from SimpleNamespace."""
-        p_new = {key: val for key, val in p.__dict__.items()
-                 if not isinstance(val, types.FunctionType)}
-        return p_new
-
-    data = {'p': SimpleNamespace_save(p),
-            'constants': SimpleNamespace_save(constants),
-            'B_x': Bs,
-            'tol': tol,
-            'syst_params': syst_params,
-            'T': T,
-            'current_phase': current_phase,
-            'git_hash': get_git_revision_hash(), **kwargs}
-
-    deepdish.io.save(fname, data, compression='blosc')
-
-
-def get_git_revision_hash():
-        return subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode("utf-8").replace('\n', '')

@@ -7,7 +7,7 @@ import subprocess
 import types
 import warnings
 
-# Custom module imports
+# Related third party imports
 import discretizer
 import kwant
 from kwant.digest import uniform

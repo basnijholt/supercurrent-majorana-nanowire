@@ -37,7 +37,7 @@ def chunks(l, n):
 
 
 def get_git_revision_hash():
-        return subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode("utf-8").replace('\n', '')
+    return subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode("utf-8").replace('\n', '')
 
 
 def find_nearest(array, value):

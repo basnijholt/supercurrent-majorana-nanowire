@@ -71,8 +71,8 @@ constants = types.SimpleNamespace(
     eV=eV,
     meV=eV * 1e-3)
 
-constants.t = ((constants.hbar**2 / (2 * constants.m)) * 
-                (1e18 / constants.meV)) # meV * nm^2
+constants.t = ((constants.hbar**2 / (2 * constants.m)) *
+               (1e18 / constants.meV))  # meV * nm^2
 constants.mu_B = physical_constants['Bohr magneton'][0] / constants.meV
 
 
@@ -131,6 +131,7 @@ def make_params(alpha=20,
     return p
 
 
+@lru_cache()
 def discretized_hamiltonian(a=10, spin=True, holes=True):
     """Discretize the the BdG Hamiltonian and returns
     functions used to construct a kwant system.
@@ -143,7 +144,7 @@ def discretized_hamiltonian(a=10, spin=True, holes=True):
         Add spin-space operators in the Hamiltonian.
     holes : bool
         Add particle-hole operators in the Hamiltonian.
-    
+
     Returns
     -------
     tb_normal, tb_sc, tb_interface : discretizer.Discretizer ojects
@@ -240,6 +241,9 @@ def null_H(syst, p, T, n):
 
 
 def gf_from_H_0(H_0, t):
+    """Returns the Green's function at a phase that is defined inside `t`.
+    See doc-string of `current_from_H_0`.
+    """
     H = np.copy(H_0)
     dim = t.shape[0]
     H[:dim, dim:] -= t.T.conj()
@@ -248,6 +252,26 @@ def gf_from_H_0(H_0, t):
 
 
 def current_from_H_0(T, H_0_cache, H12, phase):
+    """Uses Dyson’s equation to obtain the Hamiltonian for other
+    values of `phase` without further inversions (calling `null_H`).
+
+    Parameters
+    ----------
+    T : float
+        Temperature in units of Kelvin.
+    H_0_cache : list
+        Hamiltonians at different imaginary energies.
+    H12 : numpy array
+        The hopping matrix between the two cross
+        sections of where the SelfEnergyLead is attached.
+    phase : float
+        Phase at which the supercurrent is calculated.
+
+    Returns
+    -------
+    float
+        Total current of all terms in `H_0_list`.
+    """
     t = H12 * np.exp(1j * phase)
     I = 0
     for H_0 in H_0_cache:
@@ -264,12 +288,32 @@ def I_c_fixed_n(syst, hopping, p, T, matsfreqs=5):
     H12 = hopping(syst, [p])
     fun = lambda phase: -current_from_H_0(T, H_0_cache, H12, phase)
     opt = scipy.optimize.brute(
-        fun, ranges=((-np.pi, np.pi),), Ns=30, full_output=True)
+        fun, ranges=[(-np.pi, np.pi)], Ns=30, full_output=True)
     x0, fval, grid, Jout = opt
     return dict(phase_c=x0[0], current_c=-fval, phases=grid, currents=-Jout)
 
 
 def current_contrib_from_H_0(T, H_0, H12, phase):
+    """Uses Dyson’s equation to obtain the Hamiltonian for other
+    values of `phase` without further inversions (calling `null_H`).
+
+    Parameters
+    ----------
+    T : float
+        Temperature in units of Kelvin.
+    H_0 : list
+        Hamiltonian at a certain imaginary energy.
+    H12 : numpy array
+        The hopping matrix between the two cross
+        sections of where the SelfEnergyLead is attached.
+    phase : float
+        Phase at which the supercurrent is calculated.
+
+    Returns
+    -------
+    float
+        Current contribution of `H_0`.
+    """
     t = H12 * np.exp(1j * phase)
     gf = gf_from_H_0(H_0, t - H12)
     dim = t.shape[0]
@@ -535,18 +579,17 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, site_disorder, with_vlead,
     This doesn't use default parameters because the variables need to be saved,
     to a file. So I create a dictionary that is passed to the function.
 
-    
     >>> syst_params = dict(A_in_SC=True, a=10, angle=0, site_disorder=False,
     ...                    holes=True, L=30, L_sc=10, phi=185, r1=50, r2=70,
     ...                    shape='square', spin=True, with_leads=True,
-    ...                    with_shell=True, with_vlead=True)    
+    ...                    with_shell=True, with_vlead=True)
     >>> syst, hopping = make_3d_wire(**syst_params)
-    
+
     """
     assert L_sc % a == 0
     assert L % a == 0
     if not A_in_SC and shape == 'circle':
-        warnings.warn("Using shape='circle' and A_in_SC=False will result " + 
+        warnings.warn("Using shape='circle' and A_in_SC=False will result " +
             "in incorrect fluxes at the interface of the SC and SM, however " +
             "the results will not differ qualitatively.")
 

@@ -42,6 +42,11 @@ def find_nearest(array, value):
     return array[idx]
 
 
+def drop_constant_columns(df):
+    """Taken from http://stackoverflow.com/a/20210048/3447047"""
+    return df.loc[:, (df != df.ix[0]).any()]
+
+
 def gate(syst, V, gate_size):
     x_positions = sorted(set(i.pos[0] for i in syst.sites))
     x_mid = (max(x_positions) - min(x_positions)) / 2

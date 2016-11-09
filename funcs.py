@@ -2,7 +2,6 @@
 from collections import namedtuple
 from functools import lru_cache
 from itertools import product, starmap
-import os
 import subprocess
 import types
 import warnings
@@ -12,7 +11,6 @@ import discretizer
 import kwant
 from kwant.digest import uniform
 import numpy as np
-import pandas as pd
 from scipy.constants import hbar, m_e, eV, physical_constants
 import scipy.optimize
 import sympy
@@ -479,10 +477,10 @@ def square_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
 
 
 @lru_cache()
-def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, disorder, with_vlead,
+def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, site_disorder, with_vlead,
                  with_leads, with_shell, spin, holes, shape, A_in_SC):
     """Create a cylindrical 3D wire partially covered with a
-    superconducting (SC) shell, but without superconductor in the 
+    superconducting (SC) shell, but without superconductor in the
     scattering region of length L.
 
     Parameters
@@ -501,7 +499,7 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, disorder, with_vlead,
         the Peierls substitution fails.
     angle : int
         Angle of tilting of superconductor from top in degrees.
-    disorder : bool
+    site_disorder : bool
         When True, syst requires `disorder` and `salt` aguments.
     with_vlead : bool
         If True a SelfEnergyLead with zero energy is added to a slice of the system.
@@ -533,7 +531,7 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, disorder, with_vlead,
     to a file. So I create a dictionary that is passed to the function.
 
     
-    >>> syst_params = dict(A_in_SC=True, a=10, angle=0, disorder=False,
+    >>> syst_params = dict(A_in_SC=True, a=10, angle=0, site_disorder=False,
     ...                    holes=True, L=30, L_sc=10, phi=185, r1=50, r2=70,
     ...                    shape='square', spin=True, with_leads=True,
     ...                    with_shell=True, with_vlead=True)    
@@ -584,7 +582,7 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, disorder, with_vlead,
         return p.disorder * (uniform(repr(site), repr(p.salt)) - 0.5) * identity
 
     # Add onsite terms in the scattering region
-    syst[lat.shape(*shape_normal)] = lambda s, p: tb_normal.onsite(s, p) + (onsite_dis(s, p) if disorder else 0)
+    syst[lat.shape(*shape_normal)] = lambda s, p: tb_normal.onsite(s, p) + (onsite_dis(s, p) if site_disorder else 0)
 
     if with_shell:
         syst[lat.shape(*shape_sc_start)] = tb_sc.onsite

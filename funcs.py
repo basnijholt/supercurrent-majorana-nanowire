@@ -132,18 +132,20 @@ def make_params(alpha=20,
 
 
 @lru_cache()
-def discretized_hamiltonian(a=10, spin=True, holes=True):
+def discretized_hamiltonian(a=10, spin=True, holes=True, dim=3):
     """Discretize the the BdG Hamiltonian and returns
     functions used to construct a kwant system.
 
     Parameters
     ----------
-    a : int
+    a : int, optional
         Lattice constant in nm.
-    spin : bool
+    spin : bool, optional
         Add spin-space operators in the Hamiltonian.
-    holes : bool
+    holes : bool, optional
         Add particle-hole operators in the Hamiltonian.
+    dim : int, optional
+        Spatial dimension of the system.
 
     Returns
     -------
@@ -156,6 +158,12 @@ def discretized_hamiltonian(a=10, spin=True, holes=True):
     t, B_x, B_y, B_z, mu_B, Delta, mu, alpha, g, V = sympy.symbols(
         't B_x B_y B_z mu_B Delta mu alpha g V', real=True)
     t_interface = sympy.symbols('t_interface', real=True)
+
+    if dim == 1:
+        k_y = k_z = 0
+    if dim == 2:
+        k_z = 0
+
     k = sympy.sqrt(k_x**2 + k_y**2 + k_z**2)
 
     if spin and holes:
@@ -173,7 +181,8 @@ def discretized_hamiltonian(a=10, spin=True, holes=True):
                alpha * (k_y * sz - k_x * sz) +
                0.5 * g * mu_B * (B_x * s0 + B_y * s0 + B_z * s0) +
                Delta * sx)
-    args = dict(lattice_constant=a, discrete_coordinates={'x', 'y', 'z'})
+
+    args = dict(lattice_constant=a, discrete_coordinates=set('xyz'[:dim]))
     tb_normal = discretizer.Discretizer(ham.subs(Delta, 0), **args)
     tb_sc = discretizer.Discretizer(ham.subs([(g, 0), (alpha, 0)]), **args)
     tb_interface = discretizer.Discretizer(ham.subs(t, t_interface), **args)
@@ -195,7 +204,8 @@ def hoppingkind_at_interface(hop, shape1, shape2, syst):
         return ((shape1[0](site1.pos) and shape2[0](site2.pos)) or
                 (shape2[0](site1.pos) and shape1[0](site2.pos)))
     hoppingkind = kwant.HoppingKind(hop.delta, hop.family_a)(syst)
-    return ((i, j) for (i, j) in hoppingkind if at_interface(i, j, shape1, shape2))
+    return ((i, j) for (i, j) in hoppingkind
+            if at_interface(i, j, shape1, shape2))
 
 
 def matsubara_frequency(T, n):
@@ -432,6 +442,7 @@ def peierls(func, ind, a, c=constants):
         A_site = [p.B_y * z - p.B_z * y, 0, p.B_x * y][ind]
         A_site *= a * 1e-18 * c.eV / c.hbar
         return np.exp(-1j * A_site)
+
     def with_phase(s1, s2, p):
         hop = func(s1, s2, p).astype('complex128')
         phi = phase(s1, s2, p)
@@ -526,6 +537,66 @@ def square_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
 
 
 @lru_cache()
+def make_1d_wire(a, L, L_sc):
+    """Create a 1D semiconducting wire of length `L` with superconductors
+    of length `L_sc` on its ends.
+
+    Parameters
+    ----------
+    a : int
+        Discretization constant in nm.
+    L : int
+        Length of wire (the scattering semi-conducting part) in nm.
+    L_sc : int
+        Length of superconducting ends in nm.
+
+    Returns
+    -------
+    syst : kwant.builder.FiniteSystem
+        The finilized kwant system.
+    hopping : function
+        Function that returns the hopping matrix between the two cross sections
+        of where the SelfEnergyLead is attached.
+    """
+    tb_normal, tb_sc, _ = discretized_hamiltonian(a, dim=1)
+    lat = tb_normal.lattice
+    syst = kwant.Builder()
+    syst[(lat(x) for x in range(-L_sc, 0))] = tb_sc.onsite
+    syst[(lat(x) for x in range(0, L))] = tb_normal.onsite
+    syst[(lat(x) for x in range(L, L+L_sc))] = tb_sc.onsite
+
+    for hop, val in tb_normal.hoppings.items():
+        syst[hop] = val
+
+    l_cut = [lat(x) for x in np.squeeze([i.tag for i in syst.sites()]) if x == L//2]
+    r_cut = [lat(x) for x in np.squeeze([i.tag for i in syst.sites()]) if x == L//2 + 1]
+    num_orbs = 4
+    dim = num_orbs * (len(l_cut) + len(r_cut))
+    vlead = kwant.builder.SelfEnergyLead(lambda energy, args: np.zeros((dim, dim)), r_cut + l_cut)
+    syst.leads.append(vlead)
+
+    lead = kwant.Builder(kwant.TranslationalSymmetry((-a,)))
+    lead[lat(0)] = tb_sc.onsite
+
+    for hop, val in tb_sc.hoppings.items():
+        lead[hop] = val
+
+    syst.attach_lead(lead)
+    syst.attach_lead(lead.reversed())
+
+    syst = syst.finalized()
+
+    r_cut_sites = [syst.sites.index(site) for site in r_cut]
+    l_cut_sites = [syst.sites.index(site) for site in l_cut]
+
+    def hopping(syst, args=()):
+        return syst.hamiltonian_submatrix(args=args,
+                                          to_sites=l_cut_sites,
+                                          from_sites=r_cut_sites)[::2, ::2]
+    return syst, hopping
+
+
+@lru_cache()
 def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, site_disorder, with_vlead,
                  with_leads, with_shell, spin, holes, shape, A_in_SC):
     """Create a cylindrical 3D wire partially covered with a
@@ -544,8 +615,7 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, site_disorder, with_vlead,
     r2 : int
         Radius of superconductor in nm.
     phi : int
-        Coverage angle of superconductor in degrees, if bigger than 180 degrees,
-        the Peierls substitution fails.
+        Coverage angle of superconductor in degrees.
     angle : int
         Angle of tilting of superconductor from top in degrees.
     site_disorder : bool
@@ -555,16 +625,16 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, site_disorder, with_vlead,
     with_leads : bool
         If True it appends infinite leads with superconducting shell.
     L_sc : int
-        Number of unit cells that has a superconducting shell. If the system has
-        infinite leads, set L_sc=a.
+        Number of unit cells that has a superconducting shell. If the system
+        has infinite leads, set L_sc=a.
     with_shell : bool
-        Adds shell the the correct areas. If False no SC shell is added and only
-        a cylindrical wire will be created.
+        Adds shell the the correct areas. If False no SC shell is added and
+        only a cylindrical wire will be created.
     shape : str
         Either `circle` or `square` shaped cross section.
     A_in_SC : bool
-        Performs the Peierls substitution in the superconductor. Can be True and False
-        only when shape='square', and only True when shape='circle'.
+        Performs the Peierls substitution in the superconductor. Can be True
+        and False only when shape='square', and only True when shape='circle'.
 
     Returns
     -------
@@ -630,7 +700,8 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, site_disorder, with_vlead,
         return p.disorder * (uniform(repr(site), repr(p.salt)) - 0.5) * identity
 
     # Add onsite terms in the scattering region
-    syst[lat.shape(*shape_normal)] = lambda s, p: tb_normal.onsite(s, p) + (onsite_dis(s, p) if site_disorder else 0)
+    syst[lat.shape(*shape_normal)] = (lambda s, p: tb_normal.onsite(s, p) +
+                                      (onsite_dis(s, p) if site_disorder else 0))
 
     if with_shell:
         syst[lat.shape(*shape_sc_start)] = tb_sc.onsite

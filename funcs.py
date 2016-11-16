@@ -696,7 +696,8 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, site_disorder, with_vlead,
     shape_normal_lead = shape_function(r_out=r1, angle=angle, L=-1, a=a)
 
     def onsite_dis(site, p):
-        identity = np.eye(4) if spin and holes else np.eye(2)
+        identity = s0sz if spin and holes else s0 if spin else sz
+        identity = np.array(identity).astype(complex)
         return p.disorder * (uniform(repr(site), repr(p.salt)) - 0.5) * identity
 
     # Add onsite terms in the scattering region

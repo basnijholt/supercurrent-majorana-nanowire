@@ -628,7 +628,7 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, site_disorder, with_vlead,
         Number of unit cells that has a superconducting shell. If the system
         has infinite leads, set L_sc=a.
     with_shell : bool
-        Adds shell the the correct areas. If False no SC shell is added and
+        Adds shell to the correct areas. If False no SC shell is added and
         only a cylindrical wire will be created.
     shape : str
         Either `circle` or `square` shaped cross section.

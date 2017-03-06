@@ -18,12 +18,6 @@ import sympy.physics
 from sympy.physics.quantum import TensorProduct as kr
 
 
-def named_product(**items):
-    """Named `itertools.product` with `collections.namedtuple`s."""
-    Product = namedtuple('Product', items.keys())
-    return starmap(Product, product(*items.values()))
-
-
 def chunks(l, n):
     """Yield successive n-sized chunks from l."""
     for i in range(0, len(l), n):

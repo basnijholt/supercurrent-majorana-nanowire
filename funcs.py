@@ -287,12 +287,12 @@ def current_from_H_0(T, H_0_cache, H12, phase):
     return I
 
 
-def I_c_fixed_n(syst, hopping, p, T, matsfreqs=5):
+def I_c_fixed_n(syst, hopping, p, T, matsfreqs=5, N_brute=30):
     H_0_cache = [null_H(syst, p, T, n) for n in range(matsfreqs)]
     H12 = hopping(syst, [p])
     fun = lambda phase: -current_from_H_0(T, H_0_cache, H12, phase)
     opt = scipy.optimize.brute(
-        fun, ranges=[(-np.pi, np.pi)], Ns=30, full_output=True)
+        fun, ranges=[(-np.pi, np.pi)], Ns=N_brute, full_output=True)
     x0, fval, grid, Jout = opt
     return dict(phase_c=x0[0], current_c=-fval, phases=grid, currents=-Jout)
 
@@ -376,7 +376,7 @@ def current_at_phase(syst, hopping, p, T, H_0_cache, phase, tol=1e-2, max_freque
         return I
 
 
-def I_c(syst, hopping, p, T, tol=1e-2, max_frequencies=200):
+def I_c(syst, hopping, p, T, tol=1e-2, max_frequencies=200, N_brute=30):
     """Find the critical current by optimizing the current-phase
     relation.
 
@@ -395,6 +395,9 @@ def I_c(syst, hopping, p, T, tol=1e-2, max_frequencies=200):
         Tolerance of the `current_at_phase` function.
     max_frequencies : int
         Maximum number of Matsubara frequencies.
+    N_brute : int
+        Number of points at which the CPR is evaluated in the brute
+        force part of the algorithm,
 
     Returns
     -------
@@ -405,7 +408,7 @@ def I_c(syst, hopping, p, T, tol=1e-2, max_frequencies=200):
     fun = lambda phase: -current_at_phase(syst, hopping, p, T, H_0_cache,
                                           phase, tol, max_frequencies)
     opt = scipy.optimize.brute(
-        fun, ranges=((-np.pi, np.pi),), Ns=30, full_output=True)
+        fun, ranges=((-np.pi, np.pi),), Ns=N_brute, full_output=True)
     x0, fval, grid, Jout = opt
     return dict(phase_c=x0[0], current_c=-fval, phases=grid, currents=-Jout)
 

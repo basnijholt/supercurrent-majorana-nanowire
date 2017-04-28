@@ -11,7 +11,7 @@ import discretizer
 import kwant
 from kwant.digest import uniform
 import numpy as np
-from scipy.constants import hbar, m_e, eV, physical_constants
+from scipy.constants import hbar, m_e, eV, physical_constants, e, k
 import scipy.optimize
 import sympy
 import sympy.physics
@@ -48,8 +48,6 @@ def gate(syst, V, gate_size):
     x_R = find_nearest(x_positions, x_mid + gate_size / 2)
     return lambda x: V if x > x_L and x <= x_R else 0
 
-
-k_B = physical_constants['Boltzmann constant in eV/K'][0] * 1000
 sx, sy, sz = [sympy.physics.matrices.msigma(i) for i in range(1, 4)]
 s0 = sympy.eye(2)
 s0sz = np.kron(s0, sz)
@@ -217,6 +215,7 @@ def matsubara_frequency(T, n):
     float
         Imaginary energy.
     """
+    k_B = k / (1e-3 * eV)  # Boltzmann's constant in meV/T
     return (2*n + 1) * np.pi * k_B * T * 1j
 
 
@@ -276,14 +275,7 @@ def current_from_H_0(T, H_0_cache, H12, phase):
     float
         Total current of all terms in `H_0_list`.
     """
-    t = H12 * np.exp(1j * phase)
-    I = 0
-    for H_0 in H_0_cache:
-        gf = gf_from_H_0(H_0, t - H12)
-        dim = t.shape[0]
-        H12G21 = t.T.conj() @ gf[dim:, :dim]
-        H21G12 = t @ gf[:dim, dim:]
-        I += -4 * T * (np.trace(H21G12) - np.trace(H12G21)).imag
+    I = sum(current_contrib_from_H_0(T, H_0, H12, phase) for H_0 in H_0_cache)
     return I
 
 
@@ -323,7 +315,7 @@ def current_contrib_from_H_0(T, H_0, H12, phase):
     dim = t.shape[0]
     H12G21 = t.T.conj() @ gf[dim:, :dim]
     H21G12 = t @ gf[:dim, dim:]
-    return -4 * T * (np.trace(H21G12) - np.trace(H12G21)).imag
+    return -4 * k * T * e / hbar * (np.trace(H21G12) - np.trace(H12G21)).imag
 
 
 def current_at_phase(syst, hopping, p, T, H_0_cache, phase, tol=1e-2, max_frequencies=200):

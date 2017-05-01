@@ -11,7 +11,7 @@ import discretizer
 import kwant
 from kwant.digest import uniform
 import numpy as np
-from scipy.constants import hbar, m_e, eV, physical_constants, e, k
+import scipy.constants
 import scipy.optimize
 import sympy
 import sympy.physics
@@ -48,6 +48,8 @@ def gate(syst, V, gate_size):
     x_R = find_nearest(x_positions, x_mid + gate_size / 2)
     return lambda x: V if x > x_L and x <= x_R else 0
 
+
+
 sx, sy, sz = [sympy.physics.matrices.msigma(i) for i in range(1, 4)]
 s0 = sympy.eye(2)
 s0sz = np.kron(s0, sz)
@@ -57,15 +59,16 @@ s0s0 = np.kron(s0, s0)
 # All constant parameters, mostly fundamental
 # constants, in a types.SimpleNamespace.
 constants = types.SimpleNamespace(
-    m=0.015 * m_e,  # effective mass in kg
-    hbar=hbar,
-    m_e=m_e,
-    eV=eV,
-    meV=eV * 1e-3)
-
-constants.t = ((constants.hbar**2 / (2 * constants.m)) *
-               (1e18 / constants.meV))  # meV * nm^2
-constants.mu_B = physical_constants['Bohr magneton'][0] / constants.meV
+    m_eff=0.015 * scipy.constants.m_e,  # effective mass in kg
+    hbar=scipy.constants.hbar,
+    m_e=scipy.constants.m_e,
+    eV=scipy.constants.eV,
+    meV=scipy.constants.eV * 1e-3,
+    k=scipy.constants.k / (scipy.constants.eV * 1e-3),
+    current_unit=scipy.constants.k * scipy.constants.e / scipy.constants.hbar * 1e9,  # to get nA
+    mu_B=scipy.constants.physical_constants['Bohr magneton'][0] / (scipy.constants.eV * 1e-3),
+    t=scipy.constants.hbar**2 / (2 * scipy.constants.m_e) / (scipy.constants.eV * 1e-3 * 1e-18),
+    c=1e18 / (scipy.constants.eV * 1e-3))
 
 
 def make_params(alpha=20,
@@ -105,7 +108,7 @@ def make_params(alpha=20,
 
     Returns
     -------
-    p : types.SimpleNamespace object
+    params : dict
         A simple container that is used to store Hamiltonian parameters.
     """
     p = types.SimpleNamespace(alpha=alpha,
@@ -120,7 +123,7 @@ def make_params(alpha=20,
                         mu_B=mu_B,
                         V=V,
                         **kwargs)
-    return p
+    return p.__dict__
 
 
 @lru_cache()
@@ -200,13 +203,11 @@ def hoppingkind_at_interface(hop, shape1, shape2, syst):
             if at_interface(i, j, shape1, shape2))
 
 
-def matsubara_frequency(T, n):
+def matsubara_frequency(n, params):
     """n-th fermionic Matsubara frequency at temperature T.
 
     Parameters
     ----------
-    T : float
-        Temperature in units of Kelvin.
     n : int
         n-th Matsubara frequency
 
@@ -215,11 +216,10 @@ def matsubara_frequency(T, n):
     float
         Imaginary energy.
     """
-    k_B = k / (1e-3 * eV)  # Boltzmann's constant in meV/T
-    return (2*n + 1) * np.pi * k_B * T * 1j
+    return (2*n + 1) * np.pi * params['k'] * params['T'] * 1j
 
 
-def null_H(syst, p, T, n):
+def null_H(syst, params, n):
     """Return the Hamiltonian (inverse of the Green's function) of
     the electron part at zero phase.
 
@@ -227,10 +227,8 @@ def null_H(syst, p, T, n):
     ----------
     syst : kwant.builder.FiniteSystem
         The finilized kwant system.
-    p : types.SimpleNamespace object
+    params : dict
         A container that is used to store Hamiltonian parameters.
-    T : float
-        Temperature in units of Kelvin.
     n : int
         n-th Matsubara frequency
 
@@ -238,8 +236,9 @@ def null_H(syst, p, T, n):
     -------
     numpy.array
         The Hamiltonian at zero energy and zero phase."""
-    en = matsubara_frequency(T, n)
-    gf = kwant.greens_function(syst, en, [p], [0], [0], check_hermiticity=False)
+    en = matsubara_frequency(n, params)
+    gf = kwant.greens_function(syst, en, out_leads=[0], in_leads=[0],
+                               check_hermiticity=False, params=params)
     return np.linalg.inv(gf.data[::2, ::2])
 
 
@@ -254,14 +253,12 @@ def gf_from_H_0(H_0, t):
     return np.linalg.inv(H)
 
 
-def current_from_H_0(T, H_0_cache, H12, phase):
+def current_from_H_0(H_0_cache, H12, phase, params):
     """Uses Dyson’s equation to obtain the Hamiltonian for other
     values of `phase` without further inversions (calling `null_H`).
 
     Parameters
     ----------
-    T : float
-        Temperature in units of Kelvin.
     H_0_cache : list
         Hamiltonians at different imaginary energies.
     H12 : numpy array
@@ -275,28 +272,26 @@ def current_from_H_0(T, H_0_cache, H12, phase):
     float
         Total current of all terms in `H_0_list`.
     """
-    I = sum(current_contrib_from_H_0(T, H_0, H12, phase) for H_0 in H_0_cache)
+    I = sum(current_contrib_from_H_0(H_0, H12, phase, params) for H_0 in H_0_cache)
     return I
 
 
-def I_c_fixed_n(syst, hopping, p, T, matsfreqs=5, N_brute=30):
-    H_0_cache = [null_H(syst, p, T, n) for n in range(matsfreqs)]
-    H12 = hopping(syst, [p])
-    fun = lambda phase: -current_from_H_0(T, H_0_cache, H12, phase)
+def I_c_fixed_n(syst, hopping, params, matsfreqs=5, N_brute=30):
+    H_0_cache = [null_H(syst, params, n) for n in range(matsfreqs)]
+    H12 = hopping(syst, params)
+    fun = lambda phase: -current_from_H_0(H_0_cache, H12, phase, params)
     opt = scipy.optimize.brute(
         fun, ranges=[(-np.pi, np.pi)], Ns=N_brute, full_output=True)
     x0, fval, grid, Jout = opt
     return dict(phase_c=x0[0], current_c=-fval, phases=grid, currents=-Jout)
 
 
-def current_contrib_from_H_0(T, H_0, H12, phase):
+def current_contrib_from_H_0(H_0, H12, phase, params):
     """Uses Dyson’s equation to obtain the Hamiltonian for other
     values of `phase` without further inversions (calling `null_H`).
 
     Parameters
     ----------
-    T : float
-        Temperature in units of Kelvin.
     H_0 : list
         Hamiltonian at a certain imaginary energy.
     H12 : numpy array
@@ -304,6 +299,9 @@ def current_contrib_from_H_0(T, H_0, H12, phase):
         sections of where the SelfEnergyLead is attached.
     phase : float
         Phase at which the supercurrent is calculated.
+    unit : float
+        Constant that sets the unit of the current,
+        use k*e/hbar to get in A.
 
     Returns
     -------
@@ -315,10 +313,12 @@ def current_contrib_from_H_0(T, H_0, H12, phase):
     dim = t.shape[0]
     H12G21 = t.T.conj() @ gf[dim:, :dim]
     H21G12 = t @ gf[:dim, dim:]
-    return -4 * k * T * e / hbar * (np.trace(H21G12) - np.trace(H12G21)).imag
+    return -4 * params['T'] * params['current_unit'] * (
+        np.trace(H21G12) - np.trace(H12G21)).imag
 
 
-def current_at_phase(syst, hopping, p, T, H_0_cache, phase, tol=1e-2, max_frequencies=200):
+def current_at_phase(syst, hopping, params, H_0_cache, phase,
+                     tol=1e-2, max_frequencies=200):
     """Find the supercurrent at a phase using a list of Hamiltonians at
     different imaginary energies (Matsubara frequencies). If this list
     does not contain enough Hamiltonians to converge, it automatically
@@ -332,10 +332,8 @@ def current_at_phase(syst, hopping, p, T, H_0_cache, phase, tol=1e-2, max_freque
     hopping : function
         Function that returns the hopping matrix between the two cross sections
         of where the SelfEnergyLead is attached.
-    p : types.SimpleNamespace object
+    params : dict
         A container that is used to store Hamiltonian parameters.
-    T : float
-        Temperature in units of Kelvin.
     H_0_cache : list
         Hamiltonians at different imaginary energies.
     phase : float
@@ -351,12 +349,12 @@ def current_at_phase(syst, hopping, p, T, H_0_cache, phase, tol=1e-2, max_freque
         Dictionary with the critical phase, critical current, and `currents`
         evaluated at `phases`."""
 
-    H12 = hopping(syst, [p])
+    H12 = hopping(syst, params)
     I = 0
     for n in range(max_frequencies):
         if len(H_0_cache) <= n:
-            H_0_cache.append(null_H(syst, p, T, n))
-        I_contrib = current_contrib_from_H_0(T, H_0_cache[n], H12, phase)
+            H_0_cache.append(null_H(syst, params, n))
+        I_contrib = current_contrib_from_H_0(H_0_cache[n], H12, phase, params)
         I += I_contrib
         if I_contrib == 0 or tol is not None and abs(I_contrib / I) < tol:
             return I
@@ -368,7 +366,7 @@ def current_at_phase(syst, hopping, p, T, H_0_cache, phase, tol=1e-2, max_freque
         return I
 
 
-def I_c(syst, hopping, p, T, tol=1e-2, max_frequencies=200, N_brute=30):
+def I_c(syst, hopping, params, tol=1e-2, max_frequencies=200, N_brute=30):
     """Find the critical current by optimizing the current-phase
     relation.
 
@@ -379,10 +377,8 @@ def I_c(syst, hopping, p, T, tol=1e-2, max_frequencies=200, N_brute=30):
     hopping : function
         Function that returns the hopping matrix between the two cross
         sections of where the SelfEnergyLead is attached.
-    p : types.SimpleNamespace object
+    params : dict
         A container that is used to store Hamiltonian parameters.
-    T : float
-        Temperature in units of Kelvin.
     tol : float
         Tolerance of the `current_at_phase` function.
     max_frequencies : int
@@ -397,7 +393,7 @@ def I_c(syst, hopping, p, T, tol=1e-2, max_frequencies=200, N_brute=30):
         Dictionary with the critical phase, critical current, and `currents`
         evaluated at `phases`."""
     H_0_cache = []
-    fun = lambda phase: -current_at_phase(syst, hopping, p, T, H_0_cache,
+    fun = lambda phase: -current_at_phase(syst, hopping, params, H_0_cache,
                                           phase, tol, max_frequencies)
     opt = scipy.optimize.brute(
         fun, ranges=((-np.pi, np.pi),), Ns=N_brute, full_output=True)
@@ -474,16 +470,21 @@ def cylinder_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
     angle *= np.pi / 180
     r1sq, r2sq = r_out**2, r_in**2
 
-    def sector(pos):
-        x, y, z = pos
+    def sector(site):
+        x, y, z = site.pos
         n = (y + 1j * z) * np.exp(1j * angle)
         y, z = n.real, n.imag
         rsq = y**2 + z**2
 
         shape_yz = r2sq <= rsq < r1sq and z >= np.cos(phi) * np.sqrt(rsq)
         return (shape_yz and L0 <= x < L) if L > 0 else shape_yz
+
     r_mid = (r_out + r_in) / 2
-    return sector, (L - a, r_mid * np.sin(angle), r_mid * np.cos(angle))
+    start_coords = np.array([L - a,
+                             r_mid * np.sin(angle),
+                             r_mid * np.cos(angle)])
+
+    return sector, np.round(start_coords / a).astype(int)
 
 
 def square_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
@@ -512,14 +513,14 @@ def square_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
     (shape_func, *(start_coords))
     """
     if r_in > 0:
-        def sector(pos):
-            x, y, z = pos
+        def sector(site):
+            x, y, z = site.pos
             shape_yz = -r_in <= y < r_in and r_in <= z < r_out
             return (shape_yz and L0 <= x < L) if L > 0 else shape_yz
         return sector, (L - a, 0, r_in + a)
     else:
-        def sector(pos):
-            x, y, z = pos
+        def sector(site):
+            x, y, z = site.pos
             shape_yz = -r_out <= y < r_out and -r_out <= z < r_out
             return (shape_yz and L0 <= x < L) if L > 0 else shape_yz
         return sector, (L - a, 0, 0)
@@ -578,8 +579,8 @@ def make_1d_wire(a, L, L_sc):
     r_cut_sites = [syst.sites.index(site) for site in r_cut]
     l_cut_sites = [syst.sites.index(site) for site in l_cut]
 
-    def hopping(syst, args=()):
-        return syst.hamiltonian_submatrix(args=args,
+    def hopping(syst, params):
+        return syst.hamiltonian_submatrix(params=params,
                                           to_sites=l_cut_sites,
                                           from_sites=r_cut_sites)[::2, ::2]
     return syst, hopping

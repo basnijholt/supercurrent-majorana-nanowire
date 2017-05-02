@@ -67,7 +67,7 @@ constants = types.SimpleNamespace(
     k=scipy.constants.k / (scipy.constants.eV * 1e-3),
     current_unit=scipy.constants.k * scipy.constants.e / scipy.constants.hbar * 1e9,  # to get nA
     mu_B=scipy.constants.physical_constants['Bohr magneton'][0] / (scipy.constants.eV * 1e-3),
-    t=scipy.constants.hbar**2 / (2 * scipy.constants.m_e) / (scipy.constants.eV * 1e-3 * 1e-18),
+    t=scipy.constants.hbar**2 / (2 * 0.015 * scipy.constants.m_e) / (scipy.constants.eV * 1e-3 * 1e-18),
     c=1e18 / (scipy.constants.eV * 1e-3))
 
 

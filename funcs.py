@@ -1,4 +1,5 @@
 # Standard library imports
+from copy import deepcopy
 from functools import lru_cache
 import operator
 import subprocess
@@ -211,6 +212,7 @@ def lat_from_temp(template):
 
 def add_disorder_to_template(template):
     # Only works with particle-hole + spin DOF or only spin.
+    template = deepcopy(template)  # Needed because kwant.Builder is mutable
     norbs = lat_from_temp(template).norbs
     s0 = np.eye(2, dtype=complex)
     sz = np.array([[1, 0], [0, -1]], dtype=complex)

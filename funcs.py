@@ -251,8 +251,6 @@ def apply_peierls_to_template(template):
     """Adds params['orbital'] argument to the hopping functions."""
     template = deepcopy(template)  # Needed because kwant.Builder is mutable
     for (site1, site2), hop in template.hopping_value_pairs():
-        lat = site1[0]
-        a = np.max(lat.prim_vecs)
         template[site1, site2] = combine(hop, phase, operator.mul, 2)
     return template
 
@@ -345,7 +343,7 @@ def current_from_H_0(H_0_cache, H12, phase, params):
     return I
 
 
-def I_c_fixed_n(syst, hopping, params, matsfreqs=5, N_brute=30):
+def I_c_fixed_n(syst, hopping, params, matsfreqs=500, N_brute=30):
     H_0_cache = [null_H(syst, params, n) for n in range(matsfreqs)]
     H12 = hopping(syst, params)
     fun = lambda phase: -current_from_H_0(H_0_cache, H12, phase, params)
@@ -385,7 +383,7 @@ def current_contrib_from_H_0(H_0, H12, phase, params):
 
 
 def current_at_phase(syst, hopping, params, H_0_cache, phase,
-                     tol=1e-3, max_frequencies=500):
+                     tol=1e-2, max_frequencies=500):
     """Find the supercurrent at a phase using a list of Hamiltonians at
     different imaginary energies (Matsubara frequencies). If this list
     does not contain enough Hamiltonians to converge, it automatically
@@ -433,7 +431,7 @@ def current_at_phase(syst, hopping, params, H_0_cache, phase,
         return I
 
 
-def I_c(syst, hopping, params, tol=1e-3, max_frequencies=500, N_brute=30):
+def I_c(syst, hopping, params, tol=1e-2, max_frequencies=500, N_brute=30):
     """Find the critical current by optimizing the current-phase
     relation.
 
@@ -726,7 +724,7 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, site_disorder, with_vlead,
     elif shape == 'circle':
         shape_function = cylinder_sector
     else:
-        raise(NotImplementedError('Only square or circle wire cross section allowed'))
+        raise NotImplementedError('Only square or circle wire cross section allowed')
 
     # Wire scattering region shapes
     shape_normal = shape_function(r_out=r1, angle=angle, L=L, a=a)

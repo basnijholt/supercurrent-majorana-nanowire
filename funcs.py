@@ -249,6 +249,7 @@ def phase(site1, site2, B_x, B_y, B_z, orbital, e, hbar):
 
 def apply_peierls_to_template(template):
     """Adds params['orbital'] argument to the hopping functions."""
+    template = deepcopy(template)  # Needed because kwant.Builder is mutable
     for (site1, site2), hop in template.hopping_value_pairs():
         lat = site1[0]
         a = np.max(lat.prim_vecs)

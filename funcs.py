@@ -164,7 +164,7 @@ def discretized_hamiltonian(a, holes=True, dim=3):
 
     subs_sm = [(Delta, 0)]
     subs_sc = [(g, 0), (alpha, 0)]
-    subs_interface = [(c, c * c_tunnel), (alpha, 0)]
+    subs_interface = [(c, c * c_tunnel)]
 
     templ_sm = discretize(ham.subs(subs_sm), grid_spacing=a)
     templ_sc = discretize(ham.subs(subs_sc), grid_spacing=a)
@@ -190,7 +190,8 @@ def get_cuts(syst, lat, x_left=0, x_right=1):
 
 def add_vlead(syst, lat, l_cut, r_cut):
     dim = lat.norbs * (len(l_cut) + len(r_cut))
-    vlead = kwant.builder.SelfEnergyLead(lambda energy, args: np.zeros((dim, dim)), r_cut + l_cut)
+    vlead = kwant.builder.SelfEnergyLead(
+        lambda energy, args: np.zeros((dim, dim)), l_cut + r_cut)
     syst.leads.append(vlead)
     return syst
 
@@ -749,7 +750,6 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, site_disorder, with_vlead,
     # Create the templates with Hamiltonian and apply the Peierls subst. to it.
     templ_normal, templ_sc, templ_interface = map(
         apply_peierls_to_template, discretized_hamiltonian(a, holes=holes))
-    lat = lat_from_temp(templ_normal)
 
     # Fill the normal part in the scattering region
     if site_disorder:
@@ -769,8 +769,8 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, site_disorder, with_vlead,
 
     # Define left and right cut in wire in the middle of the wire, a region
     # without superconducting shell.
+    lat = lat_from_temp(templ_normal)
     cuts = get_cuts(syst, lat, L // (2*a) - 1, L // (2*a))
-
     # Sort the sites in both lists
     cuts = [sorted(cut, key=lambda s: s.pos[1] + s.pos[2]*1e6) for cut in cuts]
 

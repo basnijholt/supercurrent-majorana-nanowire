@@ -229,27 +229,27 @@ def add_disorder_to_template(template):
     return template
 
 
-def phase(site1, site2, B_x, B_y, B_z, orbital, e, hbar):
-    x, y, z = site1.tag
-    vec = site2.tag - site1.tag
-    lat = site1.family
-    a = np.max(lat.prim_vecs)  # lattice_contant
-    A = [B_y * z - B_z * y, 0, B_x * y]
-    A = np.dot(A, vec) * a**2 * 1e-18 * e / hbar
-    phi = np.exp(-1j * A)
-    if orbital:
-        if lat.norbs == 2:  # No PH degrees of freedom
-            return phi
-        elif lat.norbs == 4:
-            return np.array([phi, phi.conj(), phi, phi.conj()],
-                            dtype='complex128')
-    else:  # No orbital phase
-        return 1
-
-
 def apply_peierls_to_template(template):
     """Adds params['orbital'] argument to the hopping functions."""
     template = deepcopy(template)  # Needed because kwant.Builder is mutable
+    lat = lat_from_temp(template)
+    a = np.max(lat.prim_vecs)  # lattice_contant
+
+    def phase(site1, site2, B_x, B_y, B_z, orbital, e, hbar):
+        x, y, z = site1.tag
+        vec = site2.tag - site1.tag
+        A = [B_y * z - B_z * y, 0, B_x * y]
+        A = np.dot(A, vec) * a**2 * 1e-18 * e / hbar
+        phi = np.exp(-1j * A)
+        if orbital:
+            if lat.norbs == 2:  # No PH degrees of freedom
+                return phi
+            elif lat.norbs == 4:
+                return np.array([phi, phi.conj(), phi, phi.conj()],
+                                dtype='complex128')
+        else:  # No orbital phase
+            return 1
+
     for (site1, site2), hop in template.hopping_value_pairs():
         template[site1, site2] = combine(hop, phase, operator.mul, 2)
     return template
@@ -763,10 +763,9 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, site_disorder, with_vlead,
     if with_shell:
         # Add the SC shell to the beginning and end slice of the scattering
         # region and to the lead.
-        sites_sc = []
-        sites_sc += syst.fill(templ_sc, *shape_sc_start)
-        sites_sc += syst.fill(templ_sc, *shape_sc_end)
-        sites_sc += lead.fill(templ_sc, *shape_sc_lead)
+        syst.fill(templ_sc, *shape_sc_start)
+        syst.fill(templ_sc, *shape_sc_end)
+        lead.fill(templ_sc, *shape_sc_lead)
 
     # Define left and right cut in wire in the middle of the wire, a region
     # without superconducting shell.

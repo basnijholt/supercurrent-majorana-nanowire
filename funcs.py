@@ -18,6 +18,28 @@ from sympy.physics.quantum import TensorProduct as kr
 # 3. Internal imports
 from combine import combine
 
+sx, sy, sz = [sympy.physics.matrices.msigma(i) for i in range(1, 4)]
+s0 = sympy.eye(2)
+s0sz = np.kron(s0, sz)
+s0s0 = np.kron(s0, s0)
+
+# Parameters taken from arXiv:1204.2792
+# All constant parameters, mostly fundamental
+# constants, in a types.SimpleNamespace.
+constants = types.SimpleNamespace(
+    m_eff=0.015 * scipy.constants.m_e,  # effective mass in kg
+    hbar=scipy.constants.hbar,
+    m_e=scipy.constants.m_e,
+    eV=scipy.constants.eV,
+    e=scipy.constants.e,
+    meV=scipy.constants.eV * 1e-3,
+    k=scipy.constants.k / (scipy.constants.eV * 1e-3),
+    current_unit=scipy.constants.k * scipy.constants.e / scipy.constants.hbar * 1e9,  # to get nA
+    mu_B=scipy.constants.physical_constants['Bohr magneton'][0] / (scipy.constants.eV * 1e-3),
+    t=scipy.constants.hbar**2 / (2 * 0.015 * scipy.constants.m_e) / (scipy.constants.eV * 1e-3 * 1e-18),
+    c=1e18 / (scipy.constants.eV * 1e-3))
+
+
 def get_git_revision_hash():
     """Get the git hash to save with data to ensure reproducibility."""
     git_output = subprocess.check_output(['git', 'rev-parse', 'HEAD'])
@@ -43,28 +65,6 @@ def gate(syst, V, gate_size):
     return lambda x: V if x > x_L and x <= x_R else 0
 
 
-sx, sy, sz = [sympy.physics.matrices.msigma(i) for i in range(1, 4)]
-s0 = sympy.eye(2)
-s0sz = np.kron(s0, sz)
-s0s0 = np.kron(s0, s0)
-
-# Parameters taken from arXiv:1204.2792
-# All constant parameters, mostly fundamental
-# constants, in a types.SimpleNamespace.
-constants = types.SimpleNamespace(
-    m_eff=0.015 * scipy.constants.m_e,  # effective mass in kg
-    hbar=scipy.constants.hbar,
-    m_e=scipy.constants.m_e,
-    eV=scipy.constants.eV,
-    e=scipy.constants.e,
-    meV=scipy.constants.eV * 1e-3,
-    k=scipy.constants.k / (scipy.constants.eV * 1e-3),
-    current_unit=scipy.constants.k * scipy.constants.e / scipy.constants.hbar * 1e9,  # to get nA
-    mu_B=scipy.constants.physical_constants['Bohr magneton'][0] / (scipy.constants.eV * 1e-3),
-    t=scipy.constants.hbar**2 / (2 * 0.015 * scipy.constants.m_e) / (scipy.constants.eV * 1e-3 * 1e-18),
-    c=1e18 / (scipy.constants.eV * 1e-3))
-
-
 def make_params(alpha=20,
                 B_x=0,
                 B_y=0,
@@ -72,9 +72,7 @@ def make_params(alpha=20,
                 Delta=0.25,
                 mu=0,
                 orbital=True,
-                t=constants.t,
                 g=50,
-                mu_B=constants.mu_B,
                 V=lambda x: 0,
                 **kwargs):
     """Function that creates a namespace with parameters.
@@ -84,7 +82,8 @@ def make_params(alpha=20,
     alpha : float
         Spin-orbit coupling strength in units of meV*nm.
     B_x, B_y, B_z : float
-        The magnetic field strength in the x, y and z direction in units of Tesla.
+        The magnetic field strength in the x, y and z direction
+        in units of Tesla.
     Delta : float
         The superconducting gap in units of meV.
     mu : float
@@ -105,19 +104,9 @@ def make_params(alpha=20,
     params : dict
         A simple container that is used to store Hamiltonian parameters.
     """
-    p = types.SimpleNamespace(alpha=alpha,
-                        B_x=B_x,
-                        B_y=B_y,
-                        B_z=B_z,
-                        Delta=Delta,
-                        mu=mu,
-                        orbital=orbital,
-                        t=t,
-                        g=g,
-                        mu_B=mu_B,
-                        V=V,
-                        **kwargs)
-    return p.__dict__
+    p = dict(alpha=alpha, B_x=B_x, B_y=B_y, B_z=B_z, Delta=Delta, mu=mu,
+             orbital=orbital, t=t, g=g, mu_B=mu_B, V=V, **kwargs)
+    return p
 
 
 @lru_cache()
@@ -147,7 +136,11 @@ def discretized_hamiltonian(a, holes=True, dim=3):
     B_x, B_y, B_z, Delta, mu, alpha, g, mu_B, hbar, V = sympy.symbols(
         'B_x B_y B_z Delta mu alpha g mu_B hbar V', real=True)
     m_eff = sympy.symbols('m_eff', commutative=False)
-    c, c_tunnel = sympy.symbols('c, c_tunnel')  # c should be (1e18 / constants.meV) if in nm and meV
+
+    # c should be (1e18 / constants.meV) if in nm and meV and c_tunnel
+    # is a constant between 0 and 1 to reduce the hopping between the
+    # interface of the SM and SC.
+    c, c_tunnel = sympy.symbols('c, c_tunnel')
 
     if dim == 1:
         k_y = k_z = 0
@@ -156,7 +149,7 @@ def discretized_hamiltonian(a, holes=True, dim=3):
 
     k = sympy.sqrt(k_x**2 + k_y**2 + k_z**2)
     kin = (1 / 2) * hbar**2 * (k_x**2 + k_y**2 + k_z**2) / m_eff * c
-    
+
     if holes:
         ham = ((kin - mu + V(x)) * kr(s0, sz) +
                alpha * (k_y * kr(sx, sz) - k_x * kr(sy, sz)) +
@@ -188,9 +181,9 @@ def get_cuts(syst, lat, x_left=0, x_right=1):
         The finilized kwant system.
     lat : dict
         A container that is used to store Hamiltonian parameters.
-        """
-    l_cut = [lat(*pos) for pos in [s.tag for s in syst.sites()] if pos[0] == x_left]
-    r_cut = [lat(*pos) for pos in [s.tag for s in syst.sites()] if pos[0] == x_right]
+    """
+    l_cut = [lat(*tag) for tag in [s.tag for s in syst.sites()] if tag[0] == x_left]
+    r_cut = [lat(*tag) for tag in [s.tag for s in syst.sites()] if tag[0] == x_right]
     return l_cut, r_cut
 
 
@@ -204,6 +197,7 @@ def add_vlead(syst, lat, l_cut, r_cut):
 def hopping_between_cuts(syst, r_cut, l_cut):
     r_cut_sites = [syst.sites.index(site) for site in r_cut]
     l_cut_sites = [syst.sites.index(site) for site in l_cut]
+
     def hopping(syst, params):
         return syst.hamiltonian_submatrix(params=params,
                                           to_sites=l_cut_sites,
@@ -216,13 +210,14 @@ def lat_from_temp(template):
 
 
 def add_disorder_to_template(template):
+    # Only works with particle-hole + spin DOF or only spin.
+    norbs = lat_from_temp(template).norbs
+    s0 = np.eye(2, dtype=complex)
+    sz = np.array([[1, 0], [0, -1]], dtype=complex)
+    s0sz = np.kron(s0, sz)
+    mat = s0sz if norbs == 4 else s0
+
     def onsite_dis(site, disorder, salt):
-        s0 = np.eye(2)
-        sz = np.array([[1, 0], [0, 1]])
-        s0sz = np.kron(s0, sz)
-        spin = holes = True
-        mat = s0sz if spin and holes else s0 if spin else sz
-        mat = np.array(mat).astype(complex)
         return disorder * (uniform(repr(site), repr(salt)) - .5) * mat
 
     for site, onsite in template.site_value_pairs():
@@ -235,7 +230,7 @@ def add_disorder_to_template(template):
 def phase(site1, site2, B_x, B_y, B_z, orbital, e, hbar):
     x, y, z = site1.tag
     vec = site2.tag - site1.tag
-    lat = site1[0]
+    lat = site1.family
     a = np.max(lat.prim_vecs)  # lattice_contant
     A = [B_y * z - B_z * y, 0, B_x * y]
     A = np.dot(A, vec) * a**2 * 1e-18 * e / hbar
@@ -334,13 +329,16 @@ def current_from_H_0(H_0_cache, H12, phase, params):
         sections of where the SelfEnergyLead is attached.
     phase : float
         Phase at which the supercurrent is calculated.
+    params : dict
+        A container that is used to store Hamiltonian parameters.
 
     Returns
     -------
     float
         Total current of all terms in `H_0_list`.
     """
-    I = sum(current_contrib_from_H_0(H_0, H12, phase, params) for H_0 in H_0_cache)
+    I = sum(current_contrib_from_H_0(H_0, H12, phase, params)
+            for H_0 in H_0_cache)
     return I
 
 
@@ -367,10 +365,8 @@ def current_contrib_from_H_0(H_0, H12, phase, params):
         sections of where the SelfEnergyLead is attached.
     phase : float
         Phase at which the supercurrent is calculated.
-    unit : float
-        Constant that sets the unit of the current,
-        use k*e/hbar to get in A.
-
+    params : dict
+        A container that is used to store Hamiltonian parameters.
     Returns
     -------
     float
@@ -386,7 +382,7 @@ def current_contrib_from_H_0(H_0, H12, phase, params):
 
 
 def current_at_phase(syst, hopping, params, H_0_cache, phase,
-                     tol=1e-3, max_frequencies=600):
+                     tol=1e-3, max_frequencies=500):
     """Find the supercurrent at a phase using a list of Hamiltonians at
     different imaginary energies (Matsubara frequencies). If this list
     does not contain enough Hamiltonians to converge, it automatically
@@ -461,53 +457,13 @@ def I_c(syst, hopping, params, tol=1e-3, max_frequencies=500, N_brute=30):
         Dictionary with the critical phase, critical current, and `currents`
         evaluated at `phases`."""
     H_0_cache = []
-    fun = lambda phase: -current_at_phase(syst, hopping, params, H_0_cache,
-                                          phase, tol, max_frequencies)
+    func = lambda phase: -current_at_phase(syst, hopping, params, H_0_cache,
+                                           phase, tol, max_frequencies)
     opt = scipy.optimize.brute(
-        fun, ranges=((-np.pi, np.pi),), Ns=N_brute, full_output=True)
+        func, ranges=((-np.pi, np.pi),), Ns=N_brute, full_output=True)
     x0, fval, grid, Jout = opt
     return dict(phase_c=x0[0], current_c=-fval, phases=grid,
                 currents=-Jout, N_freqs=len(H_0_cache))
-
-
-def peierls(func, ind, a, c=constants):
-    """Applies Peierls phase to the hoppings functions. This function only
-    works if spin is present.
-
-    Parameters
-    ----------
-    func : function
-        Hopping function in certain direction.
-    ind : int
-        Index of xyz direction, corresponding to 0, 1, 2.
-    a : int
-        Lattice constant in nm.
-    c : types.SimpleNamespace object, optional
-        Namespace object that contains fundamental constants.
-
-    Returns
-    -------
-    with_phase : function
-        Hopping function that contains the Peierls phase if p.orbital
-        is True.
-    """
-    def phase(s1, s2, p):
-        x, y, z = s1.pos
-        A_site = [p.B_y * z - p.B_z * y, 0, p.B_x * y][ind]
-        A_site *= a * 1e-18 * c.eV / c.hbar
-        return np.exp(-1j * A_site)
-
-    def with_phase(s1, s2, p):
-        hop = func(s1, s2, p).astype('complex128')
-        phi = phase(s1, s2, p)
-        if p.orbital:
-            if hop.shape[0] == 2:
-                hop *= phi
-            elif hop.shape[0] == 4:
-                hop *= np.array([phi, phi.conj(), phi,
-                                 phi.conj()], dtype='complex128')
-        return hop
-    return with_phase
 
 
 def cylinder_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
@@ -674,11 +630,12 @@ def make_3d_test_system(X, Y, Z, a=10, test_hamiltonian=True):
         templ_sc = kwant.continuum.discretize(ham)
     else:
         templ_normal, templ_sc, *_ = discretized_hamiltonian(a)
-    
+
     lat = lat_from_temp(templ_normal)
     syst = kwant.Builder()
-    syst.fill(templ_normal, lambda s: 0 <= s.pos[0] < X and 0 <= s.pos[1] < Y and 0 <= s.pos[2] < Z, (0, 0, 0))
-    
+    syst.fill(templ_normal, lambda s: (0 <= s.pos[0] < X and 0 <= s.pos[1] < Y and
+                                       0 <= s.pos[2] < Z), (0, 0, 0))
+
     cuts = get_cuts(syst, lat, 0, a)
     syst = add_vlead(syst, lat, *cuts)
 
@@ -687,7 +644,7 @@ def make_3d_test_system(X, Y, Z, a=10, test_hamiltonian=True):
 
     syst.attach_lead(lead)
     syst.attach_lead(lead.reversed())
-    
+
     syst = syst.finalized()
     hopping = hopping_between_cuts(syst, *cuts)
 
@@ -757,12 +714,6 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, site_disorder, with_vlead,
     assert L_sc % a == 0
     assert L % a == 0
 
-    templ_normal, templ_sc, templ_interface = map(
-        apply_peierls_to_template, discretized_hamiltonian(a))
-    lat = lat_from_temp(templ_normal)
-    syst = kwant.Builder()
-    lead = kwant.Builder(kwant.TranslationalSymmetry((-a, 0, 0)))
-
     # The parts with a SC shell are not counted in the length L, so it's
     # modified as:
     L += 2*L_sc
@@ -789,22 +740,29 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, site_disorder, with_vlead,
     shape_sc_lead = shape_function(
         r_out=r2, r_in=r1, phi=phi, angle=angle, L=-1, a=a)
     shape_normal_lead = shape_function(r_out=r1, angle=angle, L=-1, a=a)
-    
-    sites_normal = []
-    sites_sc = []
-    
+
+    # Create the system and the lead Builders
+    syst = kwant.Builder()
+    lead = kwant.Builder(kwant.TranslationalSymmetry((-a, 0, 0)))
+
+    # Create the templates with Hamiltonian and apply the Peierls subst. to it.
+    templ_normal, templ_sc, templ_interface = map(
+        apply_peierls_to_template, discretized_hamiltonian(a, holes=holes))
+    lat = lat_from_temp(templ_normal)
+
     # Fill the normal part in the scattering region
     if site_disorder:
-        sites_normal += syst.fill(add_disorder_to_template(templ_normal), *shape_normal)
+        syst.fill(add_disorder_to_template(templ_normal), *shape_normal)
     else:
-        sites_normal += syst.fill(templ_normal, *shape_normal)
-        
+        syst.fill(templ_normal, *shape_normal)
+
     # Fill in the infinite lead
-    sites_normal += lead.fill(templ_normal, *shape_normal_lead)
+    lead.fill(templ_normal, *shape_normal_lead)
 
     if with_shell:
         # Add the SC shell to the beginning and end slice of the scattering
         # region and to the lead.
+        sites_sc = []
         sites_sc += syst.fill(templ_sc, *shape_sc_start)
         sites_sc += syst.fill(templ_sc, *shape_sc_end)
         sites_sc += lead.fill(templ_sc, *shape_sc_lead)
@@ -812,23 +770,26 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, site_disorder, with_vlead,
     # Define left and right cut in wire in the middle of the wire, a region
     # without superconducting shell.
     cuts = get_cuts(syst, lat, L // (2*a) - 1, L // (2*a))
-    
+
     # Sort the sites in both lists
-    cuts = [sorted(cut, key=lambda s: s.pos[2] * 100000 + s.pos[1]) for cut in cuts]
+    cuts = [sorted(cut, key=lambda s: s.pos[1] + s.pos[2]*1e6) for cut in cuts]
 
     if with_vlead:
         syst = add_vlead(syst, lat, *cuts)
 
     if with_shell:
         # Adding a tunnel barrier between SM and SC
-        syst = change_hopping_at_interface(syst, templ_interface, shape_normal, shape_sc_start)
-        syst = change_hopping_at_interface(syst, templ_interface, shape_normal, shape_sc_end)
-        lead = change_hopping_at_interface(lead, templ_interface, shape_normal_lead, shape_sc_lead)
+        syst = change_hopping_at_interface(syst, templ_interface,
+                                           shape_normal, shape_sc_start)
+        syst = change_hopping_at_interface(syst, templ_interface,
+                                           shape_normal, shape_sc_end)
+        lead = change_hopping_at_interface(lead, templ_interface,
+                                           shape_normal_lead, shape_sc_lead)
 
     if with_leads:
         syst.attach_lead(lead)
         syst.attach_lead(lead.reversed())
 
-    syst = syst.finalized()    
+    syst = syst.finalized()
     hopping = hopping_between_cuts(syst, *cuts)
     return syst, hopping

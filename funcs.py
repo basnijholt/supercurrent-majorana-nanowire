@@ -7,22 +7,14 @@ import types
 
 # Related third party imports
 import kwant
-from kwant.continuum.discretizer import discretize
+from kwant.continuum import discretize
 from kwant.digest import uniform
 import numpy as np
 import scipy.constants
 import scipy.optimize
-import sympy
-import sympy.physics
-from sympy.physics.quantum import TensorProduct as kr
 
 # 3. Internal imports
 from combine import combine
-
-sx, sy, sz = [sympy.physics.matrices.msigma(i) for i in range(1, 4)]
-s0 = sympy.eye(2)
-s0sz = np.kron(s0, sz)
-s0s0 = np.kron(s0, s0)
 
 # Parameters taken from arXiv:1204.2792
 # All constant parameters, mostly fundamental
@@ -129,46 +121,37 @@ def discretized_hamiltonian(a, holes=True, dim=3):
     templ_normal, templ_sc, templ_interface : kwant.Builder ojects
         Discretized Hamilonian functions of the semiconducting part,
         superconducting part, and for the interface, respectively.
+
+    Notes
+    -----
+    The variable `c` should be (1e18 / constants.meV) if the units need to be
+    in nm and meV and c_tunnel is a constant between 0 and 1 to reduce the
+    hopping between the interface of the SM and SC.
     """
-    sx, sy, sz = [sympy.physics.matrices.msigma(i) for i in range(1, 4)]
-    s0 = sympy.eye(2)
-    k_x, k_y, k_z = kwant.continuum.momentum_operators
-    x, y, z = kwant.continuum.position_operators
-    B_x, B_y, B_z, Delta, mu, alpha, g, mu_B, hbar, V = sympy.symbols(
-        'B_x B_y B_z Delta mu alpha g mu_B hbar V', real=True)
-    m_eff = sympy.symbols('m_eff', commutative=False)
-
-    # c should be (1e18 / constants.meV) if in nm and meV and c_tunnel
-    # is a constant between 0 and 1 to reduce the hopping between the
-    # interface of the SM and SC.
-    c, c_tunnel = sympy.symbols('c, c_tunnel')
-
-    if dim == 1:
-        k_y = k_z = 0
-    elif dim == 2:
-        k_z = 0
-
-    k = sympy.sqrt(k_x**2 + k_y**2 + k_z**2)
-    kin = (1 / 2) * hbar**2 * (k_x**2 + k_y**2 + k_z**2) / m_eff * c
-
     if holes:
-        ham = ((kin - mu + V(x)) * kr(s0, sz) +
-               alpha * (k_y * kr(sx, sz) - k_x * kr(sy, sz)) +
-               0.5 * g * mu_B * (B_x * kr(sx, s0) + B_y * kr(sy, s0) + B_z * kr(sz, s0)) +
-               Delta * kr(s0, sx))
+        ham = ("(0.5 * hbar**2 * (k_x**2 + k_y**2 + k_z**2) / m_eff * c - mu + V(x)) * kron(sigma_0, sigma_z) + "
+               "alpha * (k_y * kron(sigma_x, sigma_z) - k_x * kron(sigma_y, sigma_z)) + "
+               "0.5 * g * mu_B * (B_x * kron(sigma_x, sigma_0) + B_y * kron(sigma_y, sigma_0) + B_z * kron(sigma_z, sigma_0)) + "
+               "Delta * kron(sigma_0, sigma_x)")
     else:
-        ham = ((kin - mu + V(x)) * sz +
-               alpha * (k_y * sz - k_x * sz) +
-               0.5 * g * mu_B * (B_x * s0 + B_y * s0 + B_z * s0) +
-               Delta * sx)
+        ham = ("(0.5 * hbar**2 * (k_x**2 + k_y**2 + k_z**2) / m_eff * c - mu + V(x)) * sigma_0 + "
+               "alpha * (k_y * sigma_x - k_x * sigma_y) + "
+               "0.5 * g * mu_B * (B_x * sigma_x + B_y * sigma_y + B_z * sigma_z) +"
+               "Delta * sigma_0")
 
-    subs_sm = [(Delta, 0)]
-    subs_sc = [(g, 0), (alpha, 0)]
-    subs_interface = [(c, c * c_tunnel)]
+    subs = {}
+    if dim == 1:
+        subs['k_y'] = subs['k_z'] = 0
+    elif dim == 2:
+        subs['k_z'] = 0
 
-    templ_sm = discretize(ham.subs(subs_sm), grid_spacing=a)
-    templ_sc = discretize(ham.subs(subs_sc), grid_spacing=a)
-    templ_interface = discretize(ham.subs(subs_interface), grid_spacing=a)
+    subst_sm = {'Delta': 0, **subs}
+    subst_sc = {'g': 0, 'alpha': 0, **subs}
+    subst_interface = {'c': 'c * c_tunnel', 'alpha': 0, **subs}
+
+    templ_sm = discretize(ham, substitutions=subst_sm, grid_spacing=a)
+    templ_sc = discretize(ham, substitutions=subst_sc, grid_spacing=a)
+    templ_interface = discretize(ham, substitutions=subst_interface, grid_spacing=a)
 
     return templ_sm, templ_sc, templ_interface
 
@@ -185,6 +168,7 @@ def get_cuts(syst, lat, x_left=0, x_right=1):
     """
     l_cut = [lat(*tag) for tag in [s.tag for s in syst.sites()] if tag[0] == x_left]
     r_cut = [lat(*tag) for tag in [s.tag for s in syst.sites()] if tag[0] == x_right]
+    assert len(l_cut) == len(r_cut), "x_left and x_right use site.tag not site.pos!"
     return l_cut, r_cut
 
 
@@ -217,15 +201,14 @@ def add_disorder_to_template(template):
     norbs = lat_from_temp(template).norbs
     s0 = np.eye(2, dtype=complex)
     sz = np.array([[1, 0], [0, -1]], dtype=complex)
-    s0sz = np.kron(s0, sz)
-    mat = s0sz if norbs == 4 else s0
+    mat = np.kron(s0, sz) if norbs == 4 else s0
 
-    def onsite_dis(site, disorder, salt):
-        return disorder * (uniform(repr(site), repr(salt)) - .5) * mat
+    def onsite_disorder(site, disorder, salt):
+        return disorder * (uniform(repr(site), repr(salt)) - 0.5) * mat
 
     for site, onsite in template.site_value_pairs():
         onsite = template[site]
-        template[site] = combine(onsite, onsite_dis, operator.add, 1)
+        template[site] = combine(onsite, onsite_disorder, operator.add, 1)
 
     return template
 
@@ -601,12 +584,12 @@ def make_1d_wire(a=10, L=400, L_sc=400):
 
 
 @lru_cache()
-def make_2d_test_system(X=2, Y=2):
+def make_2d_test_system(X=2, Y=2, a=1):
     ham = "(hbar^2 * (k_x^2 + k_y^2) / (2 * m) * c - mu) * sigma_z + Delta * sigma_x"
-    template_lead = kwant.continuum.discretize(ham)
-    template = kwant.continuum.discretize(ham.replace('Delta', '0'))
+    template_lead = discretize(ham, grid_spacing=a)
+    template = discretize(ham, substitutions={'Delta': 0}, grid_spacing=a)
     syst = kwant.Builder()
-    syst.fill(template, lambda s: 0 <= s.tag[0] < X and 0 <= s.tag[1] < Y, (0, 0))
+    syst.fill(template, lambda s: 0 <= s.pos[0] < X and 0 <= s.pos[1] < Y, (0, 0))
     lat = lat_from_temp(template)
 
     # Add 0 self energy lead
@@ -614,7 +597,7 @@ def make_2d_test_system(X=2, Y=2):
     syst = add_vlead(syst, lat, *cuts)
 
     # Leads
-    lead = kwant.Builder(kwant.TranslationalSymmetry((1, 0)))
+    lead = kwant.Builder(kwant.TranslationalSymmetry((a, 0)))
     lead.fill(template_lead, lambda s: 0 <= s.pos[1] < Y, (0, 0))
     syst.attach_lead(lead)
     syst.attach_lead(lead.reversed())
@@ -628,8 +611,8 @@ def make_2d_test_system(X=2, Y=2):
 def make_3d_test_system(X, Y, Z, a=10, test_hamiltonian=True):
     if test_hamiltonian:
         ham = '(t * (k_x**2 + k_y**2 + k_z**2) - mu) * sigma_z + Delta * sigma_x'
-        templ_normal = kwant.continuum.discretize(ham.replace('Delta', '0'))
-        templ_sc = kwant.continuum.discretize(ham)
+        templ_normal = discretize(ham, substitutions={'Delta': 0})
+        templ_sc = discretize(ham)
     else:
         templ_normal, templ_sc, *_ = discretized_hamiltonian(a)
 
@@ -638,7 +621,7 @@ def make_3d_test_system(X, Y, Z, a=10, test_hamiltonian=True):
     syst.fill(templ_normal, lambda s: (0 <= s.pos[0] < X and 0 <= s.pos[1] < Y and
                                        0 <= s.pos[2] < Z), (0, 0, 0))
 
-    cuts = get_cuts(syst, lat, 0, a)
+    cuts = get_cuts(syst, lat)
     syst = add_vlead(syst, lat, *cuts)
 
     lead = kwant.Builder(kwant.TranslationalSymmetry((a, 0, 0)))

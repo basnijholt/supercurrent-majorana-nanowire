@@ -58,50 +58,6 @@ def gate(syst, V, gate_size):
     return lambda x: V if x > x_L and x <= x_R else 0
 
 
-def make_params(alpha=20,
-                B_x=0,
-                B_y=0,
-                B_z=0,
-                Delta=0.25,
-                mu=0,
-                orbital=True,
-                g=50,
-                V=lambda x: 0,
-                **kwargs):
-    """Function that creates a namespace with parameters.
-
-    Parameters
-    ----------
-    alpha : float
-        Spin-orbit coupling strength in units of meV*nm.
-    B_x, B_y, B_z : float
-        The magnetic field strength in the x, y and z direction
-        in units of Tesla.
-    Delta : float
-        The superconducting gap in units of meV.
-    mu : float
-        The chemical potential in units of meV.
-    orbital : bool
-        Switches the orbital effects on and off.
-    t : float
-        Hopping parameter in meV * nm^2.
-    g : float
-        Lande g factor.
-    mu_B : float
-        Bohr magneton in meV/K.
-    V : function
-        Potential as function of x.
-
-    Returns
-    -------
-    params : dict
-        A simple container that is used to store Hamiltonian parameters.
-    """
-    p = dict(alpha=alpha, B_x=B_x, B_y=B_y, B_z=B_z, Delta=Delta, mu=mu,
-             orbital=orbital, t=t, g=g, mu_B=mu_B, V=V, **kwargs)
-    return p
-
-
 @lru_cache()
 def discretized_hamiltonian(a, holes=True, dim=3):
     """Discretize the the BdG Hamiltonian and returns

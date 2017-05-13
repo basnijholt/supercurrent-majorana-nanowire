@@ -390,7 +390,7 @@ def I_c(syst, hopping, params, tol=1e-2, max_frequencies=500, N_brute=30):
         Maximum number of Matsubara frequencies.
     N_brute : int, optional
         Number of points at which the CPR is evaluated in the brute
-        force part of the algorithm,
+        force part of the algorithm.
 
     Returns
     -------

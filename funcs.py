@@ -105,9 +105,9 @@ def discretized_hamiltonian(a, holes=True, dim=3):
     subst_sc = {'g': 0, 'alpha': 0, **subs}
     subst_interface = {'c': 'c * c_tunnel', 'alpha': 0, **subs}
 
-    templ_sm = discretize(ham, substitutions=subst_sm, grid_spacing=a)
-    templ_sc = discretize(ham, substitutions=subst_sc, grid_spacing=a)
-    templ_interface = discretize(ham, substitutions=subst_interface, grid_spacing=a)
+    templ_sm = discretize(ham, locals=subst_sm, grid_spacing=a)
+    templ_sc = discretize(ham, locals=subst_sc, grid_spacing=a)
+    templ_interface = discretize(ham, locals=subst_interface, grid_spacing=a)
 
     return templ_sm, templ_sc, templ_interface
 
@@ -450,7 +450,7 @@ def cylinder_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
                              r_mid * np.sin(angle),
                              r_mid * np.cos(angle)])
 
-    return sector, np.round(start_coords / a).astype(int)
+    return sector, start_coords
 
 
 def square_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
@@ -543,7 +543,7 @@ def make_1d_wire(a=10, L=400, L_sc=400):
 def make_2d_test_system(X=2, Y=2, a=1):
     ham = "(hbar^2 * (k_x^2 + k_y^2) / (2 * m) * c - mu) * sigma_z + Delta * sigma_x"
     template_lead = discretize(ham, grid_spacing=a)
-    template = discretize(ham, substitutions={'Delta': 0}, grid_spacing=a)
+    template = discretize(ham, locals={'Delta': 0}, grid_spacing=a)
     syst = kwant.Builder()
     syst.fill(template, lambda s: 0 <= s.pos[0] < X and 0 <= s.pos[1] < Y, (0, 0))
     lat = lat_from_temp(template)
@@ -567,7 +567,7 @@ def make_2d_test_system(X=2, Y=2, a=1):
 def make_3d_test_system(X, Y, Z, a=10, test_hamiltonian=True):
     if test_hamiltonian:
         ham = '(t * (k_x**2 + k_y**2 + k_z**2) - mu) * sigma_z + Delta * sigma_x'
-        templ_normal = discretize(ham, substitutions={'Delta': 0})
+        templ_normal = discretize(ham, locals={'Delta': 0})
         templ_sc = discretize(ham)
     else:
         templ_normal, templ_sc, *_ = discretized_hamiltonian(a)

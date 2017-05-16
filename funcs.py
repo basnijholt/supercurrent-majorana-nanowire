@@ -58,7 +58,7 @@ def gate(syst, V, gate_size):
     return lambda x: V if x > x_L and x <= x_R else 0
 
 
-@lru_cache()
+@lru_cache(maxsize=None)
 def discretized_hamiltonian(a, holes=True, dim=3):
     """Discretize the the BdG Hamiltonian and returns
     functions used to construct a kwant system.
@@ -283,6 +283,7 @@ def current_from_H_0(H_0_cache, H12, phase, params):
     return I
 
 
+@lru_cache(maxsize=None)
 def I_c_fixed_n(syst, hopping, params, matsfreqs=500, N_brute=30):
     H_0_cache = [null_H(syst, params, n) for n in range(matsfreqs)]
     H12 = hopping(syst, params)
@@ -371,6 +372,7 @@ def current_at_phase(syst, hopping, params, H_0_cache, phase,
         return I
 
 
+@lru_cache(maxsize=None)
 def I_c(syst, hopping, params, tol=1e-2, max_frequencies=500, N_brute=30):
     """Find the critical current by optimizing the current-phase
     relation.
@@ -492,7 +494,7 @@ def square_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
         return sector, (L - a, 0, 0)
 
 
-@lru_cache()
+@lru_cache(maxsize=None)
 def make_1d_wire(a=10, L=400, L_sc=400):
     """Create a 1D semiconducting wire of length `L` with superconductors
     of length `L_sc` on its ends.
@@ -539,7 +541,7 @@ def make_1d_wire(a=10, L=400, L_sc=400):
     return syst, hopping
 
 
-@lru_cache()
+@lru_cache(maxsize=None)
 def make_2d_test_system(X=2, Y=2, a=1):
     ham = "(hbar^2 * (k_x^2 + k_y^2) / (2 * m) * c - mu) * sigma_z + Delta * sigma_x"
     template_lead = discretize(ham, grid_spacing=a)
@@ -563,7 +565,7 @@ def make_2d_test_system(X=2, Y=2, a=1):
     return syst, hopping
 
 
-@lru_cache()
+@lru_cache(maxsize=None)
 def make_3d_test_system(X, Y, Z, a=10, test_hamiltonian=True):
     if test_hamiltonian:
         ham = '(t * (k_x**2 + k_y**2 + k_z**2) - mu) * sigma_z + Delta * sigma_x'
@@ -592,7 +594,7 @@ def make_3d_test_system(X, Y, Z, a=10, test_hamiltonian=True):
     return syst, hopping
 
 
-@lru_cache()
+@lru_cache(maxsize=None)
 def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, site_disorder, with_vlead,
                  with_leads, with_shell, shape, holes):
     """Create a cylindrical 3D wire partially covered with a

@@ -283,7 +283,6 @@ def current_from_H_0(H_0_cache, H12, phase, params):
     return I
 
 
-@lru_cache(maxsize=None)
 def I_c_fixed_n(syst, hopping, params, matsfreqs=500, N_brute=30):
     H_0_cache = [null_H(syst, params, n) for n in range(matsfreqs)]
     H12 = hopping(syst, params)
@@ -372,7 +371,6 @@ def current_at_phase(syst, hopping, params, H_0_cache, phase,
         return I
 
 
-@lru_cache(maxsize=None)
 def I_c(syst, hopping, params, tol=1e-2, max_frequencies=500, N_brute=30):
     """Find the critical current by optimizing the current-phase
     relation.
@@ -436,7 +434,7 @@ def cylinder_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
     """
     phi *= np.pi / 360
     angle *= np.pi / 180
-    r1sq, r2sq = r_out**2, r_in**2
+    r1sq, r2sq = r_in**2, r_out**2
 
     def sector(site):
         x, y, z = site.pos
@@ -444,7 +442,7 @@ def cylinder_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
         y, z = n.real, n.imag
         rsq = y**2 + z**2
 
-        shape_yz = r2sq <= rsq < r1sq and z >= np.cos(phi) * np.sqrt(rsq)
+        shape_yz = r1sq <= rsq < r2sq and z >= np.cos(phi) * np.sqrt(rsq)
         return (shape_yz and L0 <= x < L) if L > 0 else shape_yz
 
     r_mid = (r_out + r_in) / 2
@@ -495,7 +493,7 @@ def square_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
 
 
 @lru_cache(maxsize=None)
-def make_1d_wire(a=10, L=400, L_sc=400):
+def make_1d_wire(a=10, L=400, L_sc=400, with_leads=True):
     """Create a 1D semiconducting wire of length `L` with superconductors
     of length `L_sc` on its ends.
 
@@ -507,6 +505,8 @@ def make_1d_wire(a=10, L=400, L_sc=400):
         Length of wire (the scattering semi-conducting part) in nm.
     L_sc : int
         Length of superconducting ends in nm.
+    with_leads : bool
+        Add infinite SC leads to the ends of the nanowire.
 
     Returns
     -------
@@ -521,19 +521,21 @@ def make_1d_wire(a=10, L=400, L_sc=400):
     syst = kwant.Builder()
 
     def shape(x_left, x_right):
-        return lambda s: x_left <= s.pos[0] < x_right, (x_left//a,)
+        return lambda s: x_left <= s.pos[0] <= x_right, (x_left,)
 
     syst.fill(templ_sc, *shape(-L_sc, 0))
-    syst.fill(templ_normal, *shape(0, L))
-    syst.fill(templ_sc, *shape(L, L+L_sc))
+    syst.fill(templ_normal, *shape(0, L), overwrite=True)
+    syst.fill(templ_sc, *shape(L, L+L_sc), overwrite=True)
 
     cuts = get_cuts(syst, lat, L//(2*a), (L//(2*a)+1))
     syst = add_vlead(syst, lat, *cuts)
 
     lead = kwant.Builder(kwant.TranslationalSymmetry([a]))
     lead.fill(templ_sc, lambda x: True, (0,))
-    syst.attach_lead(lead)
-    syst.attach_lead(lead.reversed())
+
+    if with_leads:
+        syst.attach_lead(lead)
+        syst.attach_lead(lead.reversed())
 
     syst = syst.finalized()
 
@@ -704,9 +706,15 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, site_disorder, with_vlead,
     if with_shell:
         # Add the SC shell to the beginning and end slice of the scattering
         # region and to the lead.
-        syst.fill(templ_sc, *shape_sc_start)
-        syst.fill(templ_sc, *shape_sc_end)
-        lead.fill(templ_sc, *shape_sc_lead)
+
+        # syst.fill(templ_sc, *shape_sc_start)
+        # syst.fill(templ_sc, *shape_sc_end)
+        # lead.fill(templ_sc, *shape_sc_lead)
+
+        syst.fill(templ_sc, lambda site: shape_normal[0](site) or shape_sc_start[0](site), shape_sc_start[1])
+        syst.fill(templ_sc, lambda site: shape_normal[0](site) or shape_sc_end[0](site), shape_sc_end[1])
+        lead.fill(templ_sc, lambda site: shape_normal_lead[0](site) or shape_sc_lead[0](site), shape_sc_lead[1])
+
 
     # Define left and right cut in wire in the middle of the wire, a region
     # without superconducting shell.

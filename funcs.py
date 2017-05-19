@@ -706,15 +706,9 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, site_disorder, with_vlead,
     if with_shell:
         # Add the SC shell to the beginning and end slice of the scattering
         # region and to the lead.
-
-        # syst.fill(templ_sc, *shape_sc_start)
-        # syst.fill(templ_sc, *shape_sc_end)
-        # lead.fill(templ_sc, *shape_sc_lead)
-
-        syst.fill(templ_sc, lambda site: shape_normal[0](site) or shape_sc_start[0](site), shape_sc_start[1])
-        syst.fill(templ_sc, lambda site: shape_normal[0](site) or shape_sc_end[0](site), shape_sc_end[1])
-        lead.fill(templ_sc, lambda site: shape_normal_lead[0](site) or shape_sc_lead[0](site), shape_sc_lead[1])
-
+        syst.fill(templ_sc, *shape_sc_start)
+        syst.fill(templ_sc, *shape_sc_end)
+        lead.fill(templ_sc, *shape_sc_lead)
 
     # Define left and right cut in wire in the middle of the wire, a region
     # without superconducting shell.

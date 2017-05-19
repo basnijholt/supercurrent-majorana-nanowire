@@ -521,11 +521,11 @@ def make_1d_wire(a=10, L=400, L_sc=400, with_leads=True):
     syst = kwant.Builder()
 
     def shape(x_left, x_right):
-        return lambda s: x_left <= s.pos[0] <= x_right, (x_left,)
+        return lambda s: x_left <= s.pos[0] < x_right, (x_left,)
 
     syst.fill(templ_sc, *shape(-L_sc, 0))
-    syst.fill(templ_normal, *shape(0, L), overwrite=True)
-    syst.fill(templ_sc, *shape(L, L+L_sc), overwrite=True)
+    syst.fill(templ_normal, *shape(0, L))
+    syst.fill(templ_sc, *shape(L, L+L_sc))
 
     cuts = get_cuts(syst, lat, L//(2*a), (L//(2*a)+1))
     syst = add_vlead(syst, lat, *cuts)

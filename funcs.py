@@ -45,8 +45,25 @@ def find_nearest(array, value):
     return array[idx]
 
 
+def remove_unhashable_columns(df):
+    df = df.copy()
+    for col in df.columns:
+        if not hashable(df[col].iloc[0]):
+            df.drop(col, axis=1, inplace=True)
+    return df
+
+
+def hashable(v):
+    """Determine whether `v` can be hashed."""
+    try:
+        hash(v)
+    except TypeError:
+        return False
+    return True
+
+
 def drop_constant_columns(df):
-    """Taken from http://stackoverflow.com/a/20210048/3447047"""
+    df = remove_unhashable_columns(df)
     return df.loc[:, (df != df.ix[0]).any()]
 
 
@@ -147,14 +164,10 @@ def hopping_between_cuts(syst, r_cut, l_cut):
     return hopping
 
 
-def lat_from_temp(template):
-    return next(iter(template.sites())).family
-
-
 def add_disorder_to_template(template):
     # Only works with particle-hole + spin DOF or only spin.
     template = deepcopy(template)  # Needed because kwant.Builder is mutable
-    norbs = lat_from_temp(template).norbs
+    norbs = template.lattice.norbs
     s0 = np.eye(2, dtype=complex)
     sz = np.array([[1, 0], [0, -1]], dtype=complex)
     mat = np.kron(s0, sz) if norbs == 4 else s0
@@ -172,7 +185,7 @@ def add_disorder_to_template(template):
 def apply_peierls_to_template(template):
     """Adds params['orbital'] argument to the hopping functions."""
     template = deepcopy(template)  # Needed because kwant.Builder is mutable
-    lat = lat_from_temp(template)
+    lat = template.lattice
     a = np.max(lat.prim_vecs)  # lattice_contant
 
     def phase(site1, site2, B_x, B_y, B_z, orbital, e, hbar):
@@ -516,8 +529,14 @@ def make_1d_wire(a=10, L=400, L_sc=400, with_leads=True):
         Function that returns the hopping matrix between the two cross sections
         of where the SelfEnergyLead is attached.
     """
-    templ_normal, templ_sc, _ = discretized_hamiltonian(a, dim=1)
-    lat = lat_from_temp(templ_normal)
+    ham = ("(0.5 * hbar**2 * k_x**2 / m_eff * c - mu) * kron(sigma_0, sigma_z) -"
+           "alpha * k_x * kron(sigma_y, sigma_z) + "
+           "0.5 * g * mu_B * B_x * kron(sigma_x, sigma_0) + Delta * kron(sigma_0, sigma_x)")
+
+    templ_normal = discretize(ham, locals={'Delta': 0}, grid_spacing=a)
+    templ_sc = discretize(ham, grid_spacing=a)
+
+    lat = templ_normal.lattice
     syst = kwant.Builder()
 
     def shape(x_left, x_right):
@@ -550,7 +569,7 @@ def make_2d_test_system(X=2, Y=2, a=1):
     template = discretize(ham, locals={'Delta': 0}, grid_spacing=a)
     syst = kwant.Builder()
     syst.fill(template, lambda s: 0 <= s.pos[0] < X and 0 <= s.pos[1] < Y, (0, 0))
-    lat = lat_from_temp(template)
+    lat = template.lattice
 
     # Add 0 self energy lead
     cuts = get_cuts(syst, lat)
@@ -576,7 +595,7 @@ def make_3d_test_system(X, Y, Z, a=10, test_hamiltonian=True):
     else:
         templ_normal, templ_sc, *_ = discretized_hamiltonian(a)
 
-    lat = lat_from_temp(templ_normal)
+    lat = templ_normal.lattice
     syst = kwant.Builder()
     syst.fill(templ_normal, lambda s: (0 <= s.pos[0] < X and 0 <= s.pos[1] < Y and
                                        0 <= s.pos[2] < Z), (0, 0, 0))
@@ -712,7 +731,7 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, site_disorder, with_vlead,
 
     # Define left and right cut in wire in the middle of the wire, a region
     # without superconducting shell.
-    lat = lat_from_temp(templ_normal)
+    lat = templ_normal.lattice
     cuts = get_cuts(syst, lat, L // (2*a) - 1, L // (2*a))
     # Sort the sites in both lists
     cuts = [sorted(cut, key=lambda s: s.pos[1] + s.pos[2]*1e6) for cut in cuts]

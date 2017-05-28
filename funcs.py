@@ -1,6 +1,7 @@
 # Standard library imports
 from copy import deepcopy
 from functools import lru_cache
+from glob import glob
 import operator
 import subprocess
 import types
@@ -10,6 +11,7 @@ import kwant
 from kwant.continuum import discretize
 from kwant.digest import uniform
 import numpy as np
+import pandas as pd
 import scipy.constants
 import scipy.optimize
 
@@ -31,6 +33,17 @@ constants = types.SimpleNamespace(
     mu_B=scipy.constants.physical_constants['Bohr magneton'][0] / (scipy.constants.eV * 1e-3),
     t=scipy.constants.hbar**2 / (2 * 0.015 * scipy.constants.m_e) / (scipy.constants.eV * 1e-3 * 1e-18),
     c=1e18 / (scipy.constants.eV * 1e-3))
+
+
+def combine_dfs(pattern, fname=None):
+    files = glob(pattern)
+    df = pd.concat([pd.read_hdf(f) for f in sorted(files)])
+    df = df.reset_index(drop=True)
+
+    if fname is not None:
+        df.to_hdf(fname, 'all_data', mode='w', complib='zlib', complevel=9)
+
+    return df
 
 
 def get_git_revision_hash():

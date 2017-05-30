@@ -6,14 +6,41 @@ from glob import glob
 from itertools import product
 import os
 import subprocess
+import sys
 
 import numpy as np
 import pandas as pd
 from toolz import partition_all
 
+assert sys.version_info >= (3, 6), 'Use Python ≥3.6'
+
 
 def run_simulation(lview, func, vals, parameters, fname_i, N=None,
                    overwrite=False):
+    """Run a simulation where one loops over `vals`. The simulation
+    yields len(vals) results, but by using `N`, you can split it up
+    in parts of length N.
+
+    Parameters
+    ----------
+    lview : ipyparallel.client.view.LoadBalancedView object
+        LoadBalancedView for asynchronous map.
+    func : function
+        Function that takes a list of arguments: `vals`.
+    vals : list
+        Arguments for `func`.
+    parameters : dict
+        Dictionary that is saved with the data, used for constant
+        parameters.
+    fname_i : str
+        Name for the resulting HDF5 files. If the simulation is
+        split up in parts by using the `N` argument, it needs to
+        be a formatteble string, for example 'file_{}'.
+    N : int
+        Number of results in each pandas.DataFrame.
+    overwrite : bool
+        Overwrite the file even if it already exists.
+    """
     if N is None:
         N = 1000000
         if len(vals) > N:

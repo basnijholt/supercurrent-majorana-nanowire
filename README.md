@@ -23,21 +23,21 @@ Most of the functions used in `generate-data.ipynb` are defined in `funcs.py`.
 
 All notebooks contain instructions of how it can be used.
 
-## generate-data.ipynb
+## [`generate-data.ipynb`](generate-data.ipynb)
 Generates numerical data used in the paper.
 
-## mean-free-path.ipynb
+## [`mean-free-path.ipynb`](mean-free-path.ipynb)
 Calculates the mean-free path using the data that is generated in `generate-data.ipynb`.
 
-## explore-data.ipynb
+## [`explore-data.ipynb`](explore-data.ipynb)
 Interactively explore data files uploaded on the 4TU library. See for example
 current-phase relations for different system lengths, disorder strengths, with
 or without the spin-orbit or Zeeman effect, different temperatures, and more!
 
-## paper-figures.ipynb
+## [`paper-figures.ipynb`](paper-figures.ipynb)
 Plot the figures that are found in the paper.
 
-## simple-example-toy-models.ipynb
+## [`simple-example-toy-models.ipynb`](simple-example-toy-models.ipynb)
 Contains simple toy models and examples of how to calculate the current-phase relations.
 
 

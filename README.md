@@ -9,11 +9,12 @@ Code written by Bas Nijholt.
 
 
 # Files
-This folder contains four Jupyter notebooks and three Python files:
+This folder contains five Jupyter notebooks and three Python files:
 * `generate-data.ipynb`
 * `explore-data.ipynb`
 * `mean-free-path.ipynb`
 * `paper-figures.ipynb`
+* `example-toy-models.ipynb`
 * `funcs.py`
 * `common.py`
 * `combine.py`
@@ -25,6 +26,9 @@ All notebooks contain instructions of how it can be used.
 ## generate-data.ipynb
 Generates numerical data used in the paper.
 
+## mean-free-path.ipynb
+Calculates the mean-free path using the data that is generated in `generate-data.ipynb`.
+
 ## explore-data.ipynb
 Interactively explore data files uploaded on the 4TU library. See for example
 current-phase relations for different system lengths, disorder strengths, with
@@ -32,6 +36,9 @@ or without the spin-orbit or Zeeman effect, different temperatures, and more!
 
 ## paper-figures.ipynb
 Plot the figures that are found in the paper.
+
+## simple-example-toy-models.ipynb
+Contains simple toy models and examples of how to calculate the current-phase relations.
 
 
 # Data

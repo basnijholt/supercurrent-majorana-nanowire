@@ -88,6 +88,7 @@ def run_simulation(lview, func, vals, parameters, fname_i, N=None,
             df = pd.DataFrame(result)
             df = df.assign(**parameters)
             df = df.assign(git_hash=get_git_revision_hash())
+            os.makedirs(os.path.dirname(fname), exist_ok=True)
             df.to_hdf(fname, 'all_data', mode='w', complib='zlib', complevel=9)
 
             # Print useful information
@@ -119,6 +120,7 @@ def combine_dfs(pattern, fname=None):
     df = df.reset_index(drop=True)
 
     if fname is not None:
+        os.makedirs(os.path.dirname(fname), exist_ok=True)
         df.to_hdf(fname, 'all_data', mode='w', complib='zlib', complevel=9)
 
     return df

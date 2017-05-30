@@ -35,6 +35,16 @@ constants = types.SimpleNamespace(
     c=1e18 / (scipy.constants.eV * 1e-3))
 
 
+def parse_params(params):
+    for k, v in params.items():
+        if isinstance(v, str):
+            try:
+                params[k] = eval(v)
+            except NameError:
+                pass
+    return params
+
+
 def combine_dfs(pattern, fname=None):
     files = glob(pattern)
     df = pd.concat([pd.read_hdf(f) for f in sorted(files)])
@@ -195,23 +205,31 @@ def add_disorder_to_template(template):
     return template
 
 
-def apply_peierls_to_template(template):
-    """Adds params['orbital'] argument to the hopping functions."""
+def get_offset(shape, start, lat):
+    a = np.max(lat.prim_vecs)
+    sc_coords = [site.pos for site in lat.shape(shape, start)()]
+    xyz_offset = np.mean(sc_coords, axis=0)
+    return xyz_offset
+
+
+def apply_peierls_to_template(template, xyz_offset=(0, 0, 0)):
+    """Adds p.orbital argument to the hopping functions."""
     template = deepcopy(template)  # Needed because kwant.Builder is mutable
+    x0, y0, z0 = xyz_offset
     lat = template.lattice
-    a = np.max(lat.prim_vecs)  # lattice_contant
+    a = np.max(lat.prim_vecs)  # lattice contant
 
     def phase(site1, site2, B_x, B_y, B_z, orbital, e, hbar):
         x, y, z = site1.tag
-        vec = site2.tag - site1.tag
-        A = [B_y * z - B_z * y, 0, B_x * y]
-        A = np.dot(A, vec) * a**2 * 1e-18 * e / hbar
-        phi = np.exp(-1j * A)
+        direction = site2.tag - site1.tag
+        A = [B_y * (z - z0) - B_z * (y - y0), 0, B_x * (y - y0)]
+        A = np.dot(A, direction) * a**2 * 1e-18 * e / hbar
+        phase = np.exp(-1j * A)
         if orbital:
             if lat.norbs == 2:  # No PH degrees of freedom
-                return phi
+                return phase
             elif lat.norbs == 4:
-                return np.array([phi, phi.conj(), phi, phi.conj()],
+                return np.array([phase, phase.conj(), phase, phase.conj()],
                                 dtype='complex128')
         else:  # No orbital phase
             return 1
@@ -463,7 +481,10 @@ def cylinder_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
     r1sq, r2sq = r_in**2, r_out**2
 
     def sector(site):
-        x, y, z = site.pos
+        try:
+            x, y, z = site.pos
+        except AttributeError:
+            x, y, z = site
         n = (y + 1j * z) * np.exp(1j * angle)
         y, z = n.real, n.imag
         rsq = y**2 + z**2
@@ -506,13 +527,19 @@ def square_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
     """
     if r_in > 0:
         def sector(site):
-            x, y, z = site.pos
+            try:
+                x, y, z = site.pos
+            except AttributeError:
+                x, y, z = site
             shape_yz = -r_in <= y < r_in and r_in <= z < r_out
             return (shape_yz and L0 <= x < L) if L > 0 else shape_yz
         return sector, (L - a, 0, r_in + a)
     else:
         def sector(site):
-            x, y, z = site.pos
+            try:
+                x, y, z = site.pos
+            except AttributeError:
+                x, y, z = site
             shape_yz = -r_out <= y < r_out and -r_out <= z < r_out
             return (shape_yz and L0 <= x < L) if L > 0 else shape_yz
         return sector, (L - a, 0, 0)
@@ -723,8 +750,11 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, site_disorder, with_vlead,
     lead = kwant.Builder(kwant.TranslationalSymmetry((-a, 0, 0)))
 
     # Create the templates with Hamiltonian and apply the Peierls subst. to it.
-    templ_normal, templ_sc, templ_interface = map(
-        apply_peierls_to_template, discretized_hamiltonian(a, holes=holes))
+    templ_normal, templ_sc, templ_interface = discretized_hamiltonian(a, holes=holes)
+    templ_normal = apply_peierls_to_template(templ_normal)
+    templ_interface = apply_peierls_to_template(templ_interface)
+    xyz_offset = get_offset(*shape_sc_start, templ_sc.lattice)
+    templ_sc = apply_peierls_to_template(templ_sc, xyz_offset)
 
     # Fill the normal part in the scattering region
     if site_disorder:

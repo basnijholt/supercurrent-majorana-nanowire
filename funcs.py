@@ -17,6 +17,7 @@ import scipy.optimize
 
 # 3. Internal imports
 from combine import combine
+from common import *
 
 # Parameters taken from arXiv:1204.2792
 # All constant parameters, mostly fundamental
@@ -33,61 +34,6 @@ constants = types.SimpleNamespace(
     mu_B=scipy.constants.physical_constants['Bohr magneton'][0] / (scipy.constants.eV * 1e-3),
     t=scipy.constants.hbar**2 / (2 * 0.015 * scipy.constants.m_e) / (scipy.constants.eV * 1e-3 * 1e-18),
     c=1e18 / (scipy.constants.eV * 1e-3))
-
-
-def parse_params(params):
-    for k, v in params.items():
-        if isinstance(v, str):
-            try:
-                params[k] = eval(v)
-            except NameError:
-                pass
-    return params
-
-
-def combine_dfs(pattern, fname=None):
-    files = glob(pattern)
-    df = pd.concat([pd.read_hdf(f) for f in sorted(files)])
-    df = df.reset_index(drop=True)
-
-    if fname is not None:
-        df.to_hdf(fname, 'all_data', mode='w', complib='zlib', complevel=9)
-
-    return df
-
-
-def get_git_revision_hash():
-    """Get the git hash to save with data to ensure reproducibility."""
-    git_output = subprocess.check_output(['git', 'rev-parse', 'HEAD'])
-    return git_output.decode("utf-8").replace('\n', '')
-
-
-def find_nearest(array, value):
-    """Find the nearest value in an array to a specified `value`."""
-    idx = np.abs(np.array(array) - value).argmin()
-    return array[idx]
-
-
-def remove_unhashable_columns(df):
-    df = df.copy()
-    for col in df.columns:
-        if not hashable(df[col].iloc[0]):
-            df.drop(col, axis=1, inplace=True)
-    return df
-
-
-def hashable(v):
-    """Determine whether `v` can be hashed."""
-    try:
-        hash(v)
-    except TypeError:
-        return False
-    return True
-
-
-def drop_constant_columns(df):
-    df = remove_unhashable_columns(df)
-    return df.loc[:, (df != df.ix[0]).any()]
 
 
 def gate(syst, V, gate_size):
@@ -190,13 +136,14 @@ def hopping_between_cuts(syst, r_cut, l_cut):
 def add_disorder_to_template(template):
     # Only works with particle-hole + spin DOF or only spin.
     template = deepcopy(template)  # Needed because kwant.Builder is mutable
-    norbs = template.lattice.norbs
     s0 = np.eye(2, dtype=complex)
     sz = np.array([[1, 0], [0, -1]], dtype=complex)
-    mat = np.kron(s0, sz) if norbs == 4 else s0
+    s0sz = np.kron(s0, sz)
+    norbs = template.lattice.norbs
+    mat = s0sz if norbs == 4 else s0
 
     def onsite_disorder(site, disorder, salt):
-        return disorder * (uniform(repr(site), repr(salt)) - 0.5) * mat
+        return disorder * (uniform(repr(site), repr(salt)) - .5) * mat
 
     for site, onsite in template.site_value_pairs():
         onsite = template[site]
@@ -207,8 +154,8 @@ def add_disorder_to_template(template):
 
 def get_offset(shape, start, lat):
     a = np.max(lat.prim_vecs)
-    sc_coords = [site.pos for site in lat.shape(shape, start)()]
-    xyz_offset = np.mean(sc_coords, axis=0)
+    coords = [site.pos for site in lat.shape(shape, start)()]
+    xyz_offset = np.mean(coords, axis=0)
     return xyz_offset
 
 

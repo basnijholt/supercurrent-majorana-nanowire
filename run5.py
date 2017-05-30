@@ -35,11 +35,11 @@ mus = [0.1, 0.3, 1, 3, 10, 30]
 
 vals = funcs.named_product(alpha=alphas, B_x=B_xs, mu=mus)
 
-def func(x, syst_pars=syst_pars, params=params):
+def func(val, syst_pars=syst_pars, params=params):
     import funcs
     syst, hopping = funcs.make_1d_wire(**syst_pars)
     params = funcs.parse_params(dict(**params, **val))
-    return dict(funcs.I_c(syst, hopping, params), **val)
+    return dict(**funcs.I_c(syst, hopping, params), **val)
 
 funcs.run_simulation(lview, func, vals, dict(**params, **syst_pars),
-                     'data/1d_alpha_vs_B_x_.hdf', N=None, overwrite=True)
+                     'tmp/1d_alpha_vs_B_x_{}.hdf', N=20000, overwrite=True)

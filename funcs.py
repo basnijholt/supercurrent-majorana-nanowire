@@ -74,59 +74,7 @@ def gate(syst, V, gate_size):
     return lambda x: V if x > x_L and x <= x_R else 0
 
 
-@lru_cache(maxsize=None)
-def discretized_hamiltonian(a, holes=True, dim=3):
-    """Discretize the the BdG Hamiltonian and returns
-    functions used to construct a kwant system.
-
-    Parameters
-    ----------
-    a : int
-        Lattice constant in nm.
-    holes : bool, optional
-        Add particle-hole operators in the Hamiltonian.
-    dim : int, optional
-        Spatial dimension of the system.
-
-    Returns
-    -------
-    templ_normal, templ_sc, templ_interface : kwant.Builder ojects
-        Discretized Hamilonian functions of the semiconducting part,
-        superconducting part, and for the interface, respectively.
-
-    Notes
-    -----
-    The variable `c` should be (1e18 / constants.meV) if the units need to be
-    in nm and meV and c_tunnel is a constant between 0 and 1 to reduce the
-    hopping between the interface of the SM and SC.
-    """
-    if holes:
-        ham = ("(0.5 * hbar**2 * (k_x**2 + k_y**2 + k_z**2) / m_eff * c - mu + V(x)) * kron(sigma_0, sigma_z) + "
-               "alpha * (k_y * kron(sigma_x, sigma_z) - k_x * kron(sigma_y, sigma_z)) + "
-               "0.5 * g * mu_B * (B_x * kron(sigma_x, sigma_0) + B_y * kron(sigma_y, sigma_0) + B_z * kron(sigma_z, sigma_0)) + "
-               "Delta * kron(sigma_0, sigma_x)")
-    else:
-        ham = ("(0.5 * hbar**2 * (k_x**2 + k_y**2 + k_z**2) / m_eff * c - mu + V(x)) * sigma_0 + "
-               "alpha * (k_y * sigma_x - k_x * sigma_y) + "
-               "0.5 * g * mu_B * (B_x * sigma_x + B_y * sigma_y + B_z * sigma_z) +"
-               "Delta * sigma_0")
-
-    subs = {}
-    if dim == 1:
-        subs['k_y'] = subs['k_z'] = 0
-    elif dim == 2:
-        subs['k_z'] = 0
-
-    subst_sm = {'Delta': 0, **subs}
-    subst_sc = {'g': 0, 'alpha': 0, **subs}
-    subst_interface = {'c': 'c * c_tunnel', 'alpha': 0, **subs}
-
-    templ_sm = discretize(ham, locals=subst_sm, grid_spacing=a)
-    templ_sc = discretize(ham, locals=subst_sc, grid_spacing=a)
-    templ_interface = discretize(ham, locals=subst_interface, grid_spacing=a)
-
-    return templ_sm, templ_sc, templ_interface
-
+# Functions related to calculating the supercurrent.
 
 def get_cuts(syst, lat, x_left=0, x_right=1):
     """Get the sites at two postions of the specified cut coordinates.
@@ -161,71 +109,6 @@ def hopping_between_cuts(syst, r_cut, l_cut):
                                           to_sites=l_cut_sites,
                                           from_sites=r_cut_sites)[::2, ::2]
     return hopping
-
-
-def add_disorder_to_template(template):
-    # Only works with particle-hole + spin DOF or only spin.
-    template = deepcopy(template)  # Needed because kwant.Builder is mutable
-    s0 = np.eye(2, dtype=complex)
-    sz = np.array([[1, 0], [0, -1]], dtype=complex)
-    s0sz = np.kron(s0, sz)
-    norbs = template.lattice.norbs
-    mat = s0sz if norbs == 4 else s0
-
-    def onsite_disorder(site, disorder, salt):
-        return disorder * (uniform(repr(site), repr(salt)) - .5) * mat
-
-    for site, onsite in template.site_value_pairs():
-        onsite = template[site]
-        template[site] = combine(onsite, onsite_disorder, operator.add, 1)
-
-    return template
-
-
-def get_offset(shape, start, lat):
-    a = np.max(lat.prim_vecs)
-    coords = [site.pos for site in lat.shape(shape, start)()]
-    xyz_offset = np.mean(coords, axis=0)
-    return xyz_offset
-
-
-def apply_peierls_to_template(template, xyz_offset=(0, 0, 0)):
-    """Adds p.orbital argument to the hopping functions."""
-    template = deepcopy(template)  # Needed because kwant.Builder is mutable
-    x0, y0, z0 = xyz_offset
-    lat = template.lattice
-    a = np.max(lat.prim_vecs)  # lattice contant
-
-    def phase(site1, site2, B_x, B_y, B_z, orbital, e, hbar):
-        x, y, z = site1.tag
-        direction = site2.tag - site1.tag
-        A = [B_y * (z - z0) - B_z * (y - y0), 0, B_x * (y - y0)]
-        A = np.dot(A, direction) * a**2 * 1e-18 * e / hbar
-        phase = np.exp(-1j * A)
-        if orbital:
-            if lat.norbs == 2:  # No PH degrees of freedom
-                return phase
-            elif lat.norbs == 4:
-                return np.array([phase, phase.conj(), phase, phase.conj()],
-                                dtype='complex128')
-        else:  # No orbital phase
-            return 1
-
-    for (site1, site2), hop in template.hopping_value_pairs():
-        template[site1, site2] = combine(hop, phase, operator.mul, 2)
-    return template
-
-
-def at_interface(site1, site2, shape1, shape2):
-    return ((shape1[0](site1) and shape2[0](site2)) or
-            (shape2[0](site1) and shape1[0](site2)))
-
-
-def change_hopping_at_interface(syst, template, shape1, shape2):
-    for (site1, site2), hop in syst.hopping_value_pairs():
-        if at_interface(site1, site2, shape1, shape2):
-            syst[site1, site2] = template[site1, site2]
-    return syst
 
 
 def matsubara_frequency(n, params):
@@ -426,6 +309,127 @@ def I_c(syst, hopping, params, tol=1e-2, max_frequencies=500, N_brute=30):
     x0, fval, grid, Jout = opt
     return dict(phase_c=x0[0], current_c=-fval, phases=grid,
                 currents=-Jout, N_freqs=len(H_0_cache))
+
+
+# Functions related to creating the kwant system.
+
+@lru_cache(maxsize=None)
+def discretized_hamiltonian(a, holes=True, dim=3):
+    """Discretize the the BdG Hamiltonian and returns
+    A kwant.Builder template.
+
+    Parameters
+    ----------
+    a : int
+        Lattice constant in nm.
+    holes : bool, optional
+        Add particle-hole operators in the Hamiltonian.
+    dim : int, optional
+        Spatial dimension of the system.
+
+    Returns
+    -------
+    templ_normal, templ_sc, templ_interface : kwant.Builder ojects
+        Discretized Hamilonian functions of the semiconducting part,
+        superconducting part, and for the interface, respectively.
+
+    Notes
+    -----
+    The variable `c` should be (1e18 / constants.meV) if the units need to be
+    in nm and meV and c_tunnel is a constant between 0 and 1 to reduce the
+    hopping between the interface of the SM and SC.
+    """
+    if holes:
+        ham = ("(0.5 * hbar**2 * (k_x**2 + k_y**2 + k_z**2) / m_eff * c - mu + V(x)) * kron(sigma_0, sigma_z) + "
+               "alpha * (k_y * kron(sigma_x, sigma_z) - k_x * kron(sigma_y, sigma_z)) + "
+               "0.5 * g * mu_B * (B_x * kron(sigma_x, sigma_0) + B_y * kron(sigma_y, sigma_0) + B_z * kron(sigma_z, sigma_0)) + "
+               "Delta * kron(sigma_0, sigma_x)")
+    else:
+        ham = ("(0.5 * hbar**2 * (k_x**2 + k_y**2 + k_z**2) / m_eff * c - mu + V(x)) * sigma_0 + "
+               "alpha * (k_y * sigma_x - k_x * sigma_y) + "
+               "0.5 * g * mu_B * (B_x * sigma_x + B_y * sigma_y + B_z * sigma_z) +"
+               "Delta * sigma_0")
+
+    subs = {}
+    if dim == 1:
+        subs['k_y'] = subs['k_z'] = 0
+    elif dim == 2:
+        subs['k_z'] = 0
+
+    subst_sm = {'Delta': 0, **subs}
+    subst_sc = {'g': 0, 'alpha': 0, **subs}
+    subst_interface = {'c': 'c * c_tunnel', 'alpha': 0, **subs}
+
+    templ_sm = discretize(ham, locals=subst_sm, grid_spacing=a)
+    templ_sc = discretize(ham, locals=subst_sc, grid_spacing=a)
+    templ_interface = discretize(ham, locals=subst_interface, grid_spacing=a)
+
+    return templ_sm, templ_sc, templ_interface
+
+
+def add_disorder_to_template(template):
+    # Only works with particle-hole + spin DOF or only spin.
+    template = deepcopy(template)  # Needed because kwant.Builder is mutable
+    s0 = np.eye(2, dtype=complex)
+    sz = np.array([[1, 0], [0, -1]], dtype=complex)
+    s0sz = np.kron(s0, sz)
+    norbs = template.lattice.norbs
+    mat = s0sz if norbs == 4 else s0
+
+    def onsite_disorder(site, disorder, salt):
+        return disorder * (uniform(repr(site), repr(salt)) - .5) * mat
+
+    for site, onsite in template.site_value_pairs():
+        onsite = template[site]
+        template[site] = combine(onsite, onsite_disorder, operator.add, 1)
+
+    return template
+
+
+def apply_peierls_to_template(template, xyz_offset=(0, 0, 0)):
+    """Adds p.orbital argument to the hopping functions."""
+    template = deepcopy(template)  # Needed because kwant.Builder is mutable
+    x0, y0, z0 = xyz_offset
+    lat = template.lattice
+    a = np.max(lat.prim_vecs)  # lattice contant
+
+    def phase(site1, site2, B_x, B_y, B_z, orbital, e, hbar):
+        x, y, z = site1.tag
+        direction = site2.tag - site1.tag
+        A = [B_y * (z - z0) - B_z * (y - y0), 0, B_x * (y - y0)]
+        A = np.dot(A, direction) * a**2 * 1e-18 * e / hbar
+        phase = np.exp(-1j * A)
+        if orbital:
+            if lat.norbs == 2:  # No PH degrees of freedom
+                return phase
+            elif lat.norbs == 4:
+                return np.array([phase, phase.conj(), phase, phase.conj()],
+                                dtype='complex128')
+        else:  # No orbital phase
+            return 1
+
+    for (site1, site2), hop in template.hopping_value_pairs():
+        template[site1, site2] = combine(hop, phase, operator.mul, 2)
+    return template
+
+
+def get_offset(shape, start, lat):
+    a = np.max(lat.prim_vecs)
+    coords = [site.pos for site in lat.shape(shape, start)()]
+    xyz_offset = np.mean(coords, axis=0)
+    return xyz_offset
+
+
+def at_interface(site1, site2, shape1, shape2):
+    return ((shape1[0](site1) and shape2[0](site2)) or
+            (shape2[0](site1) and shape1[0](site2)))
+
+
+def change_hopping_at_interface(syst, template, shape1, shape2):
+    for (site1, site2), hop in syst.hopping_value_pairs():
+        if at_interface(site1, site2, shape1, shape2):
+            syst[site1, site2] = template[site1, site2]
+    return syst
 
 
 def cylinder_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
@@ -753,7 +757,7 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, site_disorder, with_vlead,
     # without superconducting shell.
     lat = templ_normal.lattice
     cuts = get_cuts(syst, lat, L // (2*a) - 1, L // (2*a))
-    # Sort the sites in both lists
+    # Sort the sites in the `cuts` list.
     cuts = [sorted(cut, key=lambda s: s.pos[1] + s.pos[2]*1e6) for cut in cuts]
 
     if with_vlead:

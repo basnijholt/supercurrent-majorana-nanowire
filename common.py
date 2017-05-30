@@ -96,8 +96,8 @@ def run_simulation(lview, func, vals, parameters, fname_i, N=None,
             time_elapsed += map_async.elapsed
             time_left = timedelta(seconds=(time_elapsed / parts_done) *
                                   N_files_left)
-            print_str = ('Saved {}, {} more files to go, {} time to go '
-                         'to complete everything.')
+            print_str = ('Saved {}, {} more files to go, {} time left '
+                         'before everything is done.')
             print(print_str.format(fname, N_files_left, time_left))
         else:
             print('File: {} was already done.'.format(fname))

@@ -38,7 +38,7 @@ vals = funcs.named_product(alpha=alphas, B_x=B_xs, mu=mus)
 def func(x, syst_pars=syst_pars, params=params):
     import funcs
     syst, hopping = funcs.make_1d_wire(**syst_pars)
-    params = funcs.parse_params(dict(**params, **vals))
+    params = funcs.parse_params(dict(**params, **val))
     return dict(funcs.I_c(syst, hopping, params), **val)
 
 funcs.run_simulation(lview, func, vals, dict(**params, **syst_pars),

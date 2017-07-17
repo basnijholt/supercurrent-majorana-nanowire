@@ -31,6 +31,7 @@
 from datetime import timedelta
 import functools
 from glob import glob
+import inspect
 from itertools import product
 import os
 import subprocess
@@ -41,6 +42,14 @@ import pandas as pd
 from toolz import partition_all
 
 assert sys.version_info >= (3, 6), 'Use Python ≥3.6'
+
+
+def upd(d, **kwargs):
+    # Update a `dict` inline and return the `dict`.
+    d = d.copy()
+    for k, v in kwargs.items():
+        d[k] = v
+    return d
 
 
 def run_simulation(lview, func, vals, parameters, fname_i, N=None,
@@ -102,6 +111,27 @@ def run_simulation(lview, func, vals, parameters, fname_i, N=None,
             print(print_str.format(fname, N_files_left, time_left))
         else:
             print('File: {} was already done.'.format(fname))
+
+
+def change_var_name(func, from_name, to_name):
+    sig = inspect.signature(func)
+    pars = [(name, value) for name, value in sig.parameters.items()]
+
+    new_pars = []
+    for k, v in pars:
+        if k is not from_name:
+            new_pars.append(v)
+        else:
+            new_pars.append(inspect.Parameter(to_name, v.kind,
+                                              default=v.default))
+
+    def wrapped(*args, **kwargs):
+        kwargs[from_name] = kwargs.pop(to_name)
+        return func(*args, **kwargs)
+
+    wrapped.__signature__ = inspect.Signature(parameters=new_pars)
+
+    return wrapped
 
 
 def parse_params(params):

@@ -27,7 +27,7 @@ All notebooks contain instructions of how it can be used.
 Generates numerical data used in the paper.
 
 ## [`mean-free-path.ipynb`](mean-free-path.ipynb)
-Calculates the mean-free path using the data that is generated in `generate-data.ipynb`.
+Estimates the mean-free path using the data that is generated in `generate-data.ipynb`.
 
 ## [`explore-data.ipynb`](explore-data.ipynb)
 Interactively explore data files uploaded on the 4TU library. See for example

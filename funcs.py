@@ -367,7 +367,7 @@ def discretized_hamiltonian(a, holes=True, dim=3):
     return templ_sm, templ_sc, templ_interface
 
 
-def add_disorder_to_template(template):
+def add_disorder_to_template(template, disorder_variable=None):
     # Only works with particle-hole + spin DOF or only spin.
     template = deepcopy(template)  # Needed because kwant.Builder is mutable
     s0 = np.eye(2, dtype=complex)
@@ -378,6 +378,10 @@ def add_disorder_to_template(template):
 
     def onsite_disorder(site, disorder, salt):
         return disorder * (uniform(repr(site), repr(salt)) - .5) * mat
+
+    if disorder_variable is not None:
+        onsite_disorder= change_var_name(onsite_disorder, 'disorder',
+                                         disorder_variable)
 
     for site, onsite in template.site_value_pairs():
         onsite = template[site]

@@ -29,4 +29,4 @@ data: code
 	-mv $(CODE_DIR)/README.md $(TARGET_DIR)/CODE_README.md
 	-mv $(CODE_DIR)/* $(TARGET_DIR)
 	cp data/DATA_README.md $(TARGET_DIR)/DATA_README.md
-	cd $(TARGET_DIR) && zip -Zstore -r ../shortjunction_data.zip *
+	cd $(TARGET_DIR) && zip -Zstore -r ../supercurrent_data.zip *

@@ -47,30 +47,30 @@ Download the data used in `explore-data.ipynb` and `paper-figures.ipynb` at UPLO
 
 # Installation (Windows/OS X/Linux)
 
-(Windows only) Install [Windows Subsystem for Linux (WSL)](https://msdn.microsoft.com/en-us/commandline/wsl/install_guide).
-(Windows only) Open "Bash on Ubuntu on Windows" and choose the Linux version of Miniconda in the next steps!
+* (Windows only) Install [Windows Subsystem for Linux (WSL)](https://msdn.microsoft.com/en-us/commandline/wsl/install_guide).
+* (Windows only) Open "Bash on Ubuntu on Windows" and choose the Linux version of Miniconda in the next steps!
 
-Download [miniconda](https://conda.io/miniconda.html) for Python 3 and [install](https://conda.io/docs/install/quick.html) it.
+* Download [miniconda](https://conda.io/miniconda.html) for Python 3 and [install](https://conda.io/docs/install/quick.html) it.
 
-(Windows only) Run the following command
+* (Windows only) Run the following command
 ```
 echo 'export PATH="${HOME}/miniconda3/bin:$PATH"' >> ~/.bashrc
 source ~/.bashrc
 ```
 
-Enter the directory with these downloaded files, with `cd`, for example:
+* Enter the directory with these downloaded files, with `cd`, for example:
 ```
 cd ~/Downloads/supercurrent_data
 ```
 
-Then add a Python environment that contains all dependencies with:
+* Then add a Python environment that contains all dependencies with:
 ```
 conda env create -f environment.yml -n kwant
 ```
 
-To activate the environment that we just installed run:
+* To activate the environment that we just installed run:
 ```
 source activate kwant
 ```
 
-Run `jupyter-notebook` in your terminal to open the `*.ipynb` files.
+* Run `jupyter-notebook` in your terminal to open the `*.ipynb` files.

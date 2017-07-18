@@ -24,6 +24,7 @@ data: code
 	-mkdir -p $(TARGET_DIR)
 	-mkdir -p $(TARGET_DIR)/data
 	cp data/*.hdf $(TARGET_DIR)/data
+	cp -r data/experimental_data $(TARGET_DIR)/data
 	-mv $(CODE_DIR)/LICENSE $(TARGET_DIR)
 	-mv $(CODE_DIR)/README.md $(TARGET_DIR)/CODE_README.md
 	-mv $(CODE_DIR)/* $(TARGET_DIR)

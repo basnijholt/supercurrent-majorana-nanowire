@@ -65,12 +65,30 @@ cd ~/Downloads/supercurrent_data
 
 * Then add a Python environment that contains all dependencies with:
 ```
-conda env create -f environment.yml -n kwant
+conda env create -f environment.yml -n supercurrent
 ```
 
 * To activate the environment that we just installed run:
 ```
-source activate kwant
+source activate supercurrent
 ```
 
 * Run `jupyter-notebook` in your terminal to open the `*.ipynb` files.
+
+
+# Alternative installation (only for the `explore-data.ipynb` notebook) (Windows/OS X/Linux)
+If you do not have a working Python 3.6 environment:
+* Download [miniconda](https://conda.io/miniconda.html) for Python 3.6 and [install](https://conda.io/docs/install/quick.html) it.
+
+If you already have `conda` do or just installed it, run:
+```
+conda env create -c conda-forge -n supercurrent python=3.6 holoviews=1.8 pandas pytables toolz numpy notebook
+source activate supercurrent
+jupyter notebook
+```
+
+If you already have a Python 3.6 environment without `conda`, use `pip`:
+```
+pip install -U holoviews=1.8 pandas pytables toolz numpy notebook
+jupyter notebook
+```

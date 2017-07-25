@@ -89,6 +89,6 @@ jupyter notebook
 
 If you already have a Python 3.6 environment without `conda`, use `pip`:
 ```
-pip install -U holoviews=1.8 pandas pytables toolz numpy notebook
+pip install -U holoviews==1.8.1 pandas tables toolz numpy notebook
 jupyter notebook
 ```

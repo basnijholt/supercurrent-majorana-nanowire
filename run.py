@@ -1,4 +1,5 @@
 import hpc05
+import sys
 from time import sleep
 client = hpc05.Client(profile='pbs', timeout=60)
 print("Connected to hpc05"); sleep(2)

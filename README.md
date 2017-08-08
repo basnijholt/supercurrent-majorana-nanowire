@@ -1,11 +1,11 @@
 # Project on supercurrents in nanowire Josephson junctions
 For the paper: "Supercurrent interference in few-mode nanowire Josephson junctions"
-by Vincent Mourik, Daniel B. Szombati, Bas Nijholt, David J. van Woerkom,
+by Kun Zuo, Vincent Mourik, Daniel B. Szombati, Bas Nijholt, David J. van Woerkom,
 Attila Geresdi, Jun Chen, Viacheslav P. Ostroukh, Anton R. Akhmerov,
 Sebastian R. Plissard, Diana Car, Erik P. A. M. Bakkers, Dmitry I. Pikulin,
 Leo P. Kouwenhoven, and Sergey M. Frolov.
 
-Code written by Bas Nijholt.
+Code written by Bas Nijholt, Viacheslav P. Ostroukh, Anton R. Akhmerov, and Dmitry I. Pikulin.
 
 
 # Files

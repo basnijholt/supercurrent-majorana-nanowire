@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-# Copyright (c) 2017, Bas Nijholt
+# Copyright (c) 2017, Bas Nijholt, Viacheslav P. Ostroukh, Anton R. Akhmerov,
+# and Dmitry I. Pikulin.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without

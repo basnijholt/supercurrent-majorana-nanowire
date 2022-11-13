@@ -1,2 +1,4 @@
 *.ipynb filter=nbclearoutput
 *.ipynb filter=ipynb_filter
+*.mtx filter=lfs diff=lfs merge=lfs -text
+*.hdf filter=lfs diff=lfs merge=lfs -text

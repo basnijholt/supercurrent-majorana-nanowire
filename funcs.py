@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 #
 # Copyright (c) 2017, Bas Nijholt, Viacheslav P. Ostroukh, Anton R. Akhmerov,
 # and Dmitry I. Pikulin.
@@ -29,22 +28,22 @@
 #
 # Functions library used to calculate supercurrents.
 
+import operator
+import subprocess
+import types
 # Standard library imports
 from copy import deepcopy
 from functools import lru_cache
 from glob import glob
-import operator
-import subprocess
-import types
 
 # Related third party imports
 import kwant
-from kwant.continuum import discretize
-from kwant.digest import uniform
 import numpy as np
 import pandas as pd
 import scipy.constants
 import scipy.optimize
+from kwant.continuum import discretize
+from kwant.digest import uniform
 
 # 3. Internal imports
 from combine import combine
@@ -61,14 +60,21 @@ constants = types.SimpleNamespace(
     e=scipy.constants.e,
     meV=scipy.constants.eV * 1e-3,
     k=scipy.constants.k / (scipy.constants.eV * 1e-3),
-    current_unit=scipy.constants.k * scipy.constants.e / scipy.constants.hbar * 1e9,  # to get nA
-    mu_B=scipy.constants.physical_constants['Bohr magneton'][0] / (scipy.constants.eV * 1e-3),
-    t=scipy.constants.hbar**2 / (2 * 0.015 * scipy.constants.m_e) / (scipy.constants.eV * 1e-3 * 1e-18),
-    c=1e18 / (scipy.constants.eV * 1e-3))
+    current_unit=scipy.constants.k
+    * scipy.constants.e
+    / scipy.constants.hbar
+    * 1e9,  # to get nA
+    mu_B=scipy.constants.physical_constants["Bohr magneton"][0]
+    / (scipy.constants.eV * 1e-3),
+    t=scipy.constants.hbar**2
+    / (2 * 0.015 * scipy.constants.m_e)
+    / (scipy.constants.eV * 1e-3 * 1e-18),
+    c=1e18 / (scipy.constants.eV * 1e-3),
+)
 
 
 def gate(syst, V, gate_size):
-    x_positions = sorted(set(i.pos[0] for i in syst.sites))
+    x_positions = sorted({i.pos[0] for i in syst.sites})
     x_mid = (max(x_positions) - min(x_positions)) / 2
     x_L = find_nearest(x_positions, x_mid - gate_size / 2)
     x_R = find_nearest(x_positions, x_mid + gate_size / 2)
@@ -76,6 +82,7 @@ def gate(syst, V, gate_size):
 
 
 # Functions related to calculating the supercurrent.
+
 
 def get_cuts(syst, lat, x_left=0, x_right=1):
     """Get the sites at two postions of the specified cut coordinates.
@@ -96,7 +103,8 @@ def get_cuts(syst, lat, x_left=0, x_right=1):
 def add_vlead(syst, lat, l_cut, r_cut):
     dim = lat.norbs * (len(l_cut) + len(r_cut))
     vlead = kwant.builder.SelfEnergyLead(
-        lambda energy, args: np.zeros((dim, dim)), l_cut + r_cut)
+        lambda energy, args: np.zeros((dim, dim)), l_cut + r_cut
+    )
     syst.leads.append(vlead)
     return syst
 
@@ -106,9 +114,10 @@ def hopping_between_cuts(syst, r_cut, l_cut):
     l_cut_sites = [syst.sites.index(site) for site in l_cut]
 
     def hopping(syst, params):
-        return syst.hamiltonian_submatrix(params=params,
-                                          to_sites=l_cut_sites,
-                                          from_sites=r_cut_sites)[::2, ::2]
+        return syst.hamiltonian_submatrix(
+            params=params, to_sites=l_cut_sites, from_sites=r_cut_sites
+        )[::2, ::2]
+
     return hopping
 
 
@@ -125,7 +134,7 @@ def matsubara_frequency(n, params):
     float
         Imaginary energy.
     """
-    return (2*n + 1) * np.pi * params['k'] * params['T'] * 1j
+    return (2 * n + 1) * np.pi * params["k"] * params["T"] * 1j
 
 
 def null_H(syst, params, n):
@@ -146,8 +155,9 @@ def null_H(syst, params, n):
     numpy.array
         The Hamiltonian at zero energy and zero phase."""
     en = matsubara_frequency(n, params)
-    gf = kwant.greens_function(syst, en, out_leads=[0], in_leads=[0],
-                               check_hermiticity=False, params=params)
+    gf = kwant.greens_function(
+        syst, en, out_leads=[0], in_leads=[0], check_hermiticity=False, params=params
+    )
     return np.linalg.inv(gf.data[::2, ::2])
 
 
@@ -183,8 +193,7 @@ def current_from_H_0(H_0_cache, H12, phase, params):
     float
         Total current of all terms in `H_0_list`.
     """
-    I = sum(current_contrib_from_H_0(H_0, H12, phase, params)
-            for H_0 in H_0_cache)
+    I = sum(current_contrib_from_H_0(H_0, H12, phase, params) for H_0 in H_0_cache)
     return I
 
 
@@ -193,7 +202,8 @@ def I_c_fixed_n(syst, hopping, params, matsfreqs=500, N_brute=30):
     H12 = hopping(syst, params)
     fun = lambda phase: -current_from_H_0(H_0_cache, H12, phase, params)
     opt = scipy.optimize.brute(
-        fun, ranges=[(-np.pi, np.pi)], Ns=N_brute, full_output=True)
+        fun, ranges=[(-np.pi, np.pi)], Ns=N_brute, full_output=True
+    )
     x0, fval, grid, Jout = opt
     return dict(phase_c=x0[0], current_c=-fval, phases=grid, currents=-Jout)
 
@@ -223,12 +233,17 @@ def current_contrib_from_H_0(H_0, H12, phase, params):
     dim = t.shape[0]
     H12G21 = t.T.conj() @ gf[dim:, :dim]
     H21G12 = t @ gf[:dim, dim:]
-    return -4 * params['T'] * params['current_unit'] * (
-        np.trace(H21G12) - np.trace(H12G21)).imag
+    return (
+        -4
+        * params["T"]
+        * params["current_unit"]
+        * (np.trace(H21G12) - np.trace(H12G21)).imag
+    )
 
 
-def current_at_phase(syst, hopping, params, H_0_cache, phase,
-                     tol=1e-2, max_frequencies=500):
+def current_at_phase(
+    syst, hopping, params, H_0_cache, phase, tol=1e-2, max_frequencies=500
+):
     """Find the supercurrent at a phase using a list of Hamiltonians at
     different imaginary energies (Matsubara frequencies). If this list
     does not contain enough Hamiltonians to converge, it automatically
@@ -303,16 +318,24 @@ def I_c(syst, hopping, params, tol=1e-2, max_frequencies=500, N_brute=30):
         Dictionary with the critical phase, critical current, and `currents`
         evaluated at `phases`."""
     H_0_cache = []
-    func = lambda phase: -current_at_phase(syst, hopping, params, H_0_cache,
-                                           phase, tol, max_frequencies)
+    func = lambda phase: -current_at_phase(
+        syst, hopping, params, H_0_cache, phase, tol, max_frequencies
+    )
     opt = scipy.optimize.brute(
-        func, ranges=((-np.pi, np.pi),), Ns=N_brute, full_output=True)
+        func, ranges=((-np.pi, np.pi),), Ns=N_brute, full_output=True
+    )
     x0, fval, grid, Jout = opt
-    return dict(phase_c=x0[0], current_c=-fval, phases=grid,
-                currents=-Jout, N_freqs=len(H_0_cache))
+    return dict(
+        phase_c=x0[0],
+        current_c=-fval,
+        phases=grid,
+        currents=-Jout,
+        N_freqs=len(H_0_cache),
+    )
 
 
 # Functions related to creating the kwant system.
+
 
 @lru_cache(maxsize=None)
 def discretized_hamiltonian(a, holes=True, dim=3):
@@ -341,25 +364,29 @@ def discretized_hamiltonian(a, holes=True, dim=3):
     hopping between the interface of the SM and SC.
     """
     if holes:
-        ham = ("(0.5 * hbar**2 * (k_x**2 + k_y**2 + k_z**2) / m_eff * c - mu + V(x)) * kron(sigma_0, sigma_z) + "
-               "alpha * (k_y * kron(sigma_x, sigma_z) - k_x * kron(sigma_y, sigma_z)) + "
-               "0.5 * g * mu_B * (B_x * kron(sigma_x, sigma_0) + B_y * kron(sigma_y, sigma_0) + B_z * kron(sigma_z, sigma_0)) + "
-               "Delta * kron(sigma_0, sigma_x)")
+        ham = (
+            "(0.5 * hbar**2 * (k_x**2 + k_y**2 + k_z**2) / m_eff * c - mu + V(x)) * kron(sigma_0, sigma_z) + "
+            "alpha * (k_y * kron(sigma_x, sigma_z) - k_x * kron(sigma_y, sigma_z)) + "
+            "0.5 * g * mu_B * (B_x * kron(sigma_x, sigma_0) + B_y * kron(sigma_y, sigma_0) + B_z * kron(sigma_z, sigma_0)) + "
+            "Delta * kron(sigma_0, sigma_x)"
+        )
     else:
-        ham = ("(0.5 * hbar**2 * (k_x**2 + k_y**2 + k_z**2) / m_eff * c - mu + V(x)) * sigma_0 + "
-               "alpha * (k_y * sigma_x - k_x * sigma_y) + "
-               "0.5 * g * mu_B * (B_x * sigma_x + B_y * sigma_y + B_z * sigma_z) +"
-               "Delta * sigma_0")
+        ham = (
+            "(0.5 * hbar**2 * (k_x**2 + k_y**2 + k_z**2) / m_eff * c - mu + V(x)) * sigma_0 + "
+            "alpha * (k_y * sigma_x - k_x * sigma_y) + "
+            "0.5 * g * mu_B * (B_x * sigma_x + B_y * sigma_y + B_z * sigma_z) +"
+            "Delta * sigma_0"
+        )
 
     subs = {}
     if dim == 1:
-        subs['k_y'] = subs['k_z'] = 0
+        subs["k_y"] = subs["k_z"] = 0
     elif dim == 2:
-        subs['k_z'] = 0
+        subs["k_z"] = 0
 
-    subst_sm = {'Delta': 0, **subs}
-    subst_sc = {'g': 0, 'alpha': 0, **subs}
-    subst_interface = {'c': 'c * c_tunnel', 'alpha': 0, **subs}
+    subst_sm = {"Delta": 0, **subs}
+    subst_sc = {"g": 0, "alpha": 0, **subs}
+    subst_interface = {"c": "c * c_tunnel", "alpha": 0, **subs}
 
     templ_sm = discretize(ham, locals=subst_sm, grid_spacing=a)
     templ_sc = discretize(ham, locals=subst_sc, grid_spacing=a)
@@ -378,11 +405,12 @@ def add_disorder_to_template(template, disorder_variable=None):
     mat = s0sz if norbs == 4 else s0
 
     def onsite_disorder(site, disorder, salt):
-        return disorder * (uniform(repr(site), repr(salt)) - .5) * mat
+        return disorder * (uniform(repr(site), repr(salt)) - 0.5) * mat
 
     if disorder_variable is not None:
-        onsite_disorder= change_var_name(onsite_disorder, 'disorder',
-                                         disorder_variable)
+        onsite_disorder = change_var_name(
+            onsite_disorder, "disorder", disorder_variable
+        )
 
     for site, onsite in template.site_value_pairs():
         onsite = template[site]
@@ -400,7 +428,7 @@ def apply_peierls_to_template(template, xyz_offset=(0, 0, 0)):
 
     def phase(site1, site2, B_x, B_y, B_z, orbital, e, hbar):
         x, y, z = site1.tag
-        direction = site2.tag - site1.tag
+        direction = site1.tag - site2.tag
         A = [B_y * (z - z0) - B_z * (y - y0), 0, B_x * (y - y0)]
         A = np.dot(A, direction) * a**2 * 1e-18 * e / hbar
         phase = np.exp(-1j * A)
@@ -408,8 +436,9 @@ def apply_peierls_to_template(template, xyz_offset=(0, 0, 0)):
             if lat.norbs == 2:  # No PH degrees of freedom
                 return phase
             elif lat.norbs == 4:
-                return np.array([phase, phase.conj(), phase, phase.conj()],
-                                dtype='complex128')
+                return np.array(
+                    [phase, phase.conj(), phase, phase.conj()], dtype="complex128"
+                )
         else:  # No orbital phase
             return 1
 
@@ -426,8 +455,9 @@ def get_offset(shape, start, lat):
 
 
 def at_interface(site1, site2, shape1, shape2):
-    return ((shape1[0](site1) and shape2[0](site2)) or
-            (shape2[0](site1) and shape1[0](site2)))
+    return (shape1[0](site1) and shape2[0](site2)) or (
+        shape2[0](site1) and shape1[0](site2)
+    )
 
 
 def change_hopping_at_interface(syst, template, shape1, shape2):
@@ -479,9 +509,7 @@ def cylinder_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
         return (shape_yz and L0 <= x < L) if L > 0 else shape_yz
 
     r_mid = (r_out + r_in) / 2
-    start_coords = np.array([L - a,
-                             r_mid * np.sin(angle),
-                             r_mid * np.cos(angle)])
+    start_coords = np.array([L - a, r_mid * np.sin(angle), r_mid * np.cos(angle)])
 
     return sector, start_coords
 
@@ -512,6 +540,7 @@ def square_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
     (shape_func, *(start_coords))
     """
     if r_in > 0:
+
         def sector(site):
             try:
                 x, y, z = site.pos
@@ -519,8 +548,10 @@ def square_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
                 x, y, z = site
             shape_yz = -r_in <= y < r_in and r_in <= z < r_out
             return (shape_yz and L0 <= x < L) if L > 0 else shape_yz
+
         return sector, (L - a, 0, r_in + a)
     else:
+
         def sector(site):
             try:
                 x, y, z = site.pos
@@ -528,6 +559,7 @@ def square_sector(r_out, r_in=0, L=1, L0=0, phi=360, angle=0, a=10):
                 x, y, z = site
             shape_yz = -r_out <= y < r_out and -r_out <= z < r_out
             return (shape_yz and L0 <= x < L) if L > 0 else shape_yz
+
         return sector, (L - a, 0, 0)
 
 
@@ -555,11 +587,13 @@ def make_1d_wire(a=10, L=400, L_sc=400, with_leads=True):
         Function that returns the hopping matrix between the two cross sections
         of where the SelfEnergyLead is attached.
     """
-    ham = ("(0.5 * hbar**2 * k_x**2 / m_eff * c - mu) * kron(sigma_0, sigma_z) -"
-           "alpha * k_x * kron(sigma_y, sigma_z) + "
-           "0.5 * g * mu_B * B_x * kron(sigma_x, sigma_0) + Delta * kron(sigma_0, sigma_x)")
+    ham = (
+        "(0.5 * hbar**2 * k_x**2 / m_eff * c - mu) * kron(sigma_0, sigma_z) -"
+        "alpha * k_x * kron(sigma_y, sigma_z) + "
+        "0.5 * g * mu_B * B_x * kron(sigma_x, sigma_0) + Delta * kron(sigma_0, sigma_x)"
+    )
 
-    templ_normal = discretize(ham, locals={'Delta': 0}, grid_spacing=a)
+    templ_normal = discretize(ham, locals={"Delta": 0}, grid_spacing=a)
     templ_sc = discretize(ham, grid_spacing=a)
 
     lat = templ_normal.lattice
@@ -570,9 +604,9 @@ def make_1d_wire(a=10, L=400, L_sc=400, with_leads=True):
 
     syst.fill(templ_sc, *shape(-L_sc, 0))
     syst.fill(templ_normal, *shape(0, L))
-    syst.fill(templ_sc, *shape(L, L+L_sc))
+    syst.fill(templ_sc, *shape(L, L + L_sc))
 
-    cuts = get_cuts(syst, lat, L//(2*a), (L//(2*a)+1))
+    cuts = get_cuts(syst, lat, L // (2 * a), (L // (2 * a) + 1))
     syst = add_vlead(syst, lat, *cuts)
 
     lead = kwant.Builder(kwant.TranslationalSymmetry([a]))
@@ -592,7 +626,7 @@ def make_1d_wire(a=10, L=400, L_sc=400, with_leads=True):
 def make_2d_test_system(X=2, Y=2, a=1):
     ham = "(hbar^2 * (k_x^2 + k_y^2) / (2 * m) * c - mu) * sigma_z + Delta * sigma_x"
     template_lead = discretize(ham, grid_spacing=a)
-    template = discretize(ham, locals={'Delta': 0}, grid_spacing=a)
+    template = discretize(ham, locals={"Delta": 0}, grid_spacing=a)
     syst = kwant.Builder()
     syst.fill(template, lambda s: 0 <= s.pos[0] < X and 0 <= s.pos[1] < Y, (0, 0))
     lat = template.lattice
@@ -615,16 +649,19 @@ def make_2d_test_system(X=2, Y=2, a=1):
 @lru_cache(maxsize=None)
 def make_3d_test_system(X, Y, Z, a=10, test_hamiltonian=True):
     if test_hamiltonian:
-        ham = '(t * (k_x**2 + k_y**2 + k_z**2) - mu) * sigma_z + Delta * sigma_x'
-        templ_normal = discretize(ham, locals={'Delta': 0})
+        ham = "(t * (k_x**2 + k_y**2 + k_z**2) - mu) * sigma_z + Delta * sigma_x"
+        templ_normal = discretize(ham, locals={"Delta": 0})
         templ_sc = discretize(ham)
     else:
         templ_normal, templ_sc, *_ = discretized_hamiltonian(a)
 
     lat = templ_normal.lattice
     syst = kwant.Builder()
-    syst.fill(templ_normal, lambda s: (0 <= s.pos[0] < X and 0 <= s.pos[1] < Y and
-                                       0 <= s.pos[2] < Z), (0, 0, 0))
+    syst.fill(
+        templ_normal,
+        lambda s: (0 <= s.pos[0] < X and 0 <= s.pos[1] < Y and 0 <= s.pos[2] < Z),
+        (0, 0, 0),
+    )
 
     cuts = get_cuts(syst, lat)
     syst = add_vlead(syst, lat, *cuts)
@@ -642,8 +679,21 @@ def make_3d_test_system(X, Y, Z, a=10, test_hamiltonian=True):
 
 
 @lru_cache(maxsize=None)
-def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, site_disorder, with_vlead,
-                 with_leads, with_shell, shape, holes):
+def make_3d_wire(
+    a,
+    L,
+    r1,
+    r2,
+    phi,
+    angle,
+    L_sc,
+    site_disorder,
+    with_vlead,
+    with_leads,
+    with_shell,
+    shape,
+    holes,
+):
     """Create a cylindrical 3D wire partially covered with a
     superconducting (SC) shell, but without superconductor in the
     scattering region of length L.
@@ -706,29 +756,30 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, site_disorder, with_vlead,
 
     # The parts with a SC shell are not counted in the length L, so it's
     # modified as:
-    L += 2*L_sc
+    L += 2 * L_sc
 
-    if shape == 'square':
+    if shape == "square":
         shape_function = square_sector
-    elif shape == 'circle':
+    elif shape == "circle":
         shape_function = cylinder_sector
     else:
-        raise NotImplementedError('Only square or circle wire cross section allowed')
+        raise NotImplementedError("Only square or circle wire cross section allowed")
 
     # Wire scattering region shapes
     shape_normal = shape_function(r_out=r1, angle=angle, L=L, a=a)
     # Superconductor slice in the beginning of the scattering region of L_sc
     # unit cells
     shape_sc_start = shape_function(
-        r_out=r2, r_in=r1, phi=phi, angle=angle, L=L_sc, a=a)
+        r_out=r2, r_in=r1, phi=phi, angle=angle, L=L_sc, a=a
+    )
     # Superconductor slice in the end of the scattering region of L_sc unit
     # cells
     shape_sc_end = shape_function(
-        r_out=r2, r_in=r1, phi=phi, angle=angle, L0=L-L_sc, L=L, a=a)
+        r_out=r2, r_in=r1, phi=phi, angle=angle, L0=L - L_sc, L=L, a=a
+    )
 
     # Lead shapes
-    shape_sc_lead = shape_function(
-        r_out=r2, r_in=r1, phi=phi, angle=angle, L=-1, a=a)
+    shape_sc_lead = shape_function(r_out=r2, r_in=r1, phi=phi, angle=angle, L=-1, a=a)
     shape_normal_lead = shape_function(r_out=r1, angle=angle, L=-1, a=a)
 
     # Create the system and the lead Builders
@@ -740,7 +791,7 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, site_disorder, with_vlead,
     templ_normal = apply_peierls_to_template(templ_normal)
     templ_interface = apply_peierls_to_template(templ_interface)
     xyz_offset = get_offset(*shape_sc_start, templ_sc.lattice)
-    templ_sc = apply_peierls_to_template(templ_sc, xyz_offset)
+    templ_sc = apply_peierls_to_template(templ_sc, (0, 0, 0))
 
     # Fill the normal part in the scattering region
     if site_disorder:
@@ -761,21 +812,24 @@ def make_3d_wire(a, L, r1, r2, phi, angle, L_sc, site_disorder, with_vlead,
     # Define left and right cut in wire in the middle of the wire, a region
     # without superconducting shell.
     lat = templ_normal.lattice
-    cuts = get_cuts(syst, lat, L // (2*a) - 1, L // (2*a))
+    cuts = get_cuts(syst, lat, L // (2 * a) - 1, L // (2 * a))
     # Sort the sites in the `cuts` list.
-    cuts = [sorted(cut, key=lambda s: s.pos[1] + s.pos[2]*1e6) for cut in cuts]
+    cuts = [sorted(cut, key=lambda s: s.pos[1] + s.pos[2] * 1e6) for cut in cuts]
 
     if with_vlead:
         syst = add_vlead(syst, lat, *cuts)
 
     if with_shell:
         # Adding a tunnel barrier between SM and SC
-        syst = change_hopping_at_interface(syst, templ_interface,
-                                           shape_normal, shape_sc_start)
-        syst = change_hopping_at_interface(syst, templ_interface,
-                                           shape_normal, shape_sc_end)
-        lead = change_hopping_at_interface(lead, templ_interface,
-                                           shape_normal_lead, shape_sc_lead)
+        syst = change_hopping_at_interface(
+            syst, templ_interface, shape_normal, shape_sc_start
+        )
+        syst = change_hopping_at_interface(
+            syst, templ_interface, shape_normal, shape_sc_end
+        )
+        lead = change_hopping_at_interface(
+            lead, templ_interface, shape_normal_lead, shape_sc_lead
+        )
 
     if with_leads:
         syst.attach_lead(lead)

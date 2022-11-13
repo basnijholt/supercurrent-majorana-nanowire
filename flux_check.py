@@ -1,10 +1,12 @@
 hopping_phases = {}
+
+
 def peierls(func, ind, a, z_interface, c=constants):
     def with_phase(s1, s2, p):
-        hop = func(s1, s2, p).astype('complex128')
+        hop = func(s1, s2, p).astype("complex128")
         y1, y2, z1 = s1.tag[1], s2.tag[1], s1.tag[2]
         z0 = (z_interface[y1] + z_interface[y2]) / 2 - z1
-        
+
         hopping_phases[(s1.tag, s2.tag)] = z0
         hopping_phases[(s2.tag, s1.tag)] = -z0
 
@@ -14,20 +16,22 @@ def peierls(func, ind, a, z_interface, c=constants):
             if hop.shape[0] == 2:
                 hop *= phi
             elif hop.shape[0] == 4:
-                hop *= np.array([phi, phi.conj(), phi, phi.conj()],
-                                dtype='complex128')
+                hop *= np.array([phi, phi.conj(), phi, phi.conj()], dtype="complex128")
         return hop
-    return with_phase
 
+    return with_phase
 
 
 pos = np.array([i.pos for i in syst.sites])
 tags = [i.tag for i in syst.sites]
-neighbors_list = [list(syst.graph.out_neighbors(i)) for i in range(syst.graph.num_nodes)]
+neighbors_list = [
+    list(syst.graph.out_neighbors(i)) for i in range(syst.graph.num_nodes)
+]
+
 
 def find_neighbor(num_node, direction, neighbors_list, tags):
     """Finds the neighbor of a given site.
-    
+
     Parameters
     ----------
     num_node : int
@@ -48,6 +52,7 @@ def find_neighbor(num_node, direction, neighbors_list, tags):
             return neighbor
     return None
 
+
 # Check algorithm
 def find_loops(neighbors_list, tags):
     paths = []
@@ -66,6 +71,7 @@ def find_loops(neighbors_list, tags):
             paths.append(None)
     return paths
 
+
 paths = find_loops(neighbors_list, tags)
 fluxes = []
 errors = []
@@ -81,11 +87,17 @@ for path in paths:
             errors.append(tags[node_2])
             errors.append(tags[node_3])
             errors.append(tags[node_4])
-print("Max and min flux through a unit cell: min={}, max={}.".format(min(fluxes), max(fluxes)))
-print("Fluxes: {}".format(set(fluxes)))
+print(
+    "Max and min flux through a unit cell: min={}, max={}.".format(
+        min(fluxes), max(fluxes)
+    )
+)
+print(f"Fluxes: {set(fluxes)}")
 pos = np.array([i.tag for i in syst.sites])
 try:
-    im = hv.Scatter(pos[np.where(pos[:, 0]==0)][:, 1:]) * hv.Scatter(np.array(errors)[:, 1:])
+    im = hv.Scatter(pos[np.where(pos[:, 0] == 0)][:, 1:]) * hv.Scatter(
+        np.array(errors)[:, 1:]
+    )
 except:
-    im = hv.Scatter(pos[np.where(pos[:, 0]==0)][:, 1:])
+    im = hv.Scatter(pos[np.where(pos[:, 0] == 0)][:, 1:])
 im
